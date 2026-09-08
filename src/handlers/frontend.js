@@ -1,15 +1,19 @@
-import { loadSettings, DEFAULT_SITE_TITLE } from '../utils/settings.js';
+import { loadSettings } from '../utils/settings.js';
+import {
+  DEFAULT_SITE_TITLE,
+  THEME_ASSET_CACHE_TTL_SECONDS,
+  THEME_COMMIT_CACHE_TTL_SECONDS
+} from '../utils/config.js';
 import {
   parseCspOrigins,
   buildApiDomainsWithWs,
   buildCspHeader,
   buildBackgroundStyle,
-  stripCspMeta
+  stripCspMeta,
+  injectApiBase
 } from '../utils/csp.js';
 import { checkAuth } from '../middleware/auth.js';
 
-const THEME_CACHE_TTL = 3600;
-const THEME_COMMIT_CACHE_TTL = 86400;
 const IMMUTABLE_ASSET_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 const PREVIEW_COOKIE = 'cfsm_theme_preview';
 const PREVIEW_AUTH_COOKIE = 'cfsm_theme_preview_auth';
@@ -81,16 +85,26 @@ function injectFavicon(html, favicon) {
   return insertBeforeHeadClose(withoutExistingIcons, `<link rel="icon" href="${safeFavicon}">`);
 }
 
-function injectAppearanceSettings(html, settings) {
+function getEnvApiBases(env) {
+  return parseCspOrigins(env?.API_BASE || '');
+}
+
+function injectAppearanceSettings(html, settings, env = {}) {
   let modifiedHtml = stripCspMeta(html);
 
   modifiedHtml = injectTitle(modifiedHtml, settings.site_title || DEFAULT_SITE_TITLE);
   modifiedHtml = injectFavicon(modifiedHtml, settings.favicon);
 
+  const envApiBases = getEnvApiBases(env);
+  modifiedHtml = injectApiBase(modifiedHtml, envApiBases);
+
   const cspStatic = settings.csp_static || '';
   const cspApi = settings.csp_api || '';
   const staticDomains = parseCspOrigins(cspStatic);
-  const rawApiDomains = parseCspOrigins(cspApi);
+  const rawApiDomains = [
+    ...envApiBases,
+    ...parseCspOrigins(cspApi)
+  ];
   const apiDomains = buildApiDomainsWithWs(rawApiDomains);
   const csp = buildCspHeader({ staticDomains, apiDomains });
 
@@ -106,8 +120,8 @@ function injectAppearanceSettings(html, settings) {
     }
   }
 
-  if (settings.custom_bg) {
-    modifiedHtml = insertBeforeHeadClose(modifiedHtml, buildBackgroundStyle(settings.custom_bg));
+  if (settings.custom_bg || settings.custom_bg_mobile) {
+    modifiedHtml = insertBeforeHeadClose(modifiedHtml, buildBackgroundStyle(settings.custom_bg, settings.custom_bg_mobile));
   }
 
   return {
@@ -192,14 +206,14 @@ function isCommitRef(ref) {
 }
 
 function getThemeWorkerCacheTtl(parsedTheme) {
-  return isCommitRef(parsedTheme.ref) ? THEME_COMMIT_CACHE_TTL : THEME_CACHE_TTL;
+  return isCommitRef(parsedTheme.ref) ? THEME_COMMIT_CACHE_TTL_SECONDS : THEME_ASSET_CACHE_TTL_SECONDS;
 }
 
 function getThemeAssetBrowserCacheControl(parsedTheme) {
   if (isCommitRef(parsedTheme.ref)) {
     return IMMUTABLE_ASSET_CACHE_CONTROL;
   }
-  return `public, max-age=${THEME_CACHE_TTL}`;
+  return `public, max-age=${THEME_ASSET_CACHE_TTL_SECONDS}`;
 }
 
 function getCookie(request, name) {
@@ -225,7 +239,7 @@ function getPreviewThemeUrlFromCookie(request) {
 
 function buildPreviewCookie(request, themeUrl) {
   const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : '';
-  return `${PREVIEW_COOKIE}=${encodeURIComponent(themeUrl)}; Max-Age=${THEME_CACHE_TTL}; Path=/; SameSite=Lax${secure}`;
+  return `${PREVIEW_COOKIE}=${encodeURIComponent(themeUrl)}; Max-Age=${THEME_ASSET_CACHE_TTL_SECONDS}; Path=/; SameSite=Lax${secure}`;
 }
 
 function buildClearPreviewCookie(request) {
@@ -292,7 +306,7 @@ function stripBrowserCacheHeaders(response) {
   });
 }
 
-async function fetchWithCache(rawUrl, contentType, workerCacheUrl, workerCacheTtl = THEME_CACHE_TTL) {
+async function fetchWithCache(rawUrl, contentType, workerCacheUrl, workerCacheTtl = THEME_ASSET_CACHE_TTL_SECONDS) {
   const cacheKey = new Request(workerCacheUrl || rawUrl, { method: 'GET' });
   const cache = typeof caches !== 'undefined' ? caches.default : null;
 
@@ -385,8 +399,8 @@ async function loadThemeIndex(themeUrl) {
   return normalizeThemeAssetUrls(await response.text());
 }
 
-function buildHtmlResponse(html, settings, request, previewThemeUrl = '') {
-  const rendered = injectAppearanceSettings(html, settings);
+function buildHtmlResponse(html, settings, request, env = {}, previewThemeUrl = '') {
+  const rendered = injectAppearanceSettings(html, settings, env);
   const headers = new Headers({
     'Content-Type': 'text/html;charset=UTF-8',
     'X-Content-Type-Options': 'nosniff',
@@ -485,7 +499,7 @@ export async function serveFrontend(request, env, settings = null) {
   if (!shouldUseBuiltinFrontend(path) && effectiveThemeUrl) {
     const themeHtml = await loadThemeIndex(effectiveThemeUrl);
     if (themeHtml) {
-      return buildHtmlResponse(themeHtml, settings, request, previewThemeUrl);
+      return buildHtmlResponse(themeHtml, settings, request, env, previewThemeUrl);
     }
     return buildThemeIndexErrorResponse();
   }
@@ -494,7 +508,7 @@ export async function serveFrontend(request, env, settings = null) {
   const html = files['dashboard.html'];
 
   if (html) {
-    return buildHtmlResponse(html, settings, request);
+    return buildHtmlResponse(html, settings, request, env);
   }
 
   return new Response('Frontend not available. Please build the frontend first with `npm run build:frontend`.', {

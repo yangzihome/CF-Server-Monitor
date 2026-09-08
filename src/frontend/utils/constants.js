@@ -1,4 +1,5 @@
 export const DEFAULT_SITE_TITLE = 'Cloudflare Server Monitor'
+export const FRONTEND_WS_TIMEOUT_MINUTES_MAX = 1440
 
 export const TIME = {
   ONLINE_THRESHOLD_MS: 300000,
@@ -21,9 +22,15 @@ export const HISTORY = {
   DEFAULT_LONG_RANGE_POINTS: 120
 }
 
+export const LATENCY_WINDOW = {
+  POINTS: 20,
+  HOURS: 2
+}
+
 export const PING = {
-  GOOD_THRESHOLD: 100,
-  WARNING_THRESHOLD: 200
+  GOOD_THRESHOLD: 80,
+  WARNING_THRESHOLD: 160,
+  CRITICAL_THRESHOLD: 240
 }
 
 export const STORAGE = {
@@ -52,6 +59,7 @@ export default {
   TIME,
   CHART,
   HISTORY,
+  LATENCY_WINDOW,
   PING,
   STORAGE,
   STATUS,

@@ -18,7 +18,6 @@
           <input type="text" name="edit_server_group" autocomplete="off" v-model="editForm.server_group" class="form-input" placeholder="e.g. US VPS">
         </div>
       </div>
-
       <div class="form-row">
         <div class="form-group flex-1">
           <label class="form-label">{{ trans.tags }}</label>
@@ -39,10 +38,9 @@
       <div class="form-row mobile-two-row">
         <div class="form-group flex-1">
           <label class="form-label">{{ trans.currency }}</label>
-          <input type="text" v-model="editForm.currency" class="form-input" list="currency-list" placeholder="e.g. $, ¥, €">
-          <datalist id="currency-list">
-            <option v-for="item in currencyOptions" :key="item.symbol" :value="item.symbol">{{ currencyLabel(item) }}</option>
-          </datalist>
+          <select v-model="editForm.currency" class="form-select">
+            <option v-for="item in currencySelectOptions" :key="item.symbol" :value="item.symbol">{{ currencyLabel(item) }}</option>
+          </select>
         </div>
 
         <div class="form-group flex-1">
@@ -87,7 +85,10 @@
           <input type="date" name="edit_expire_date" autocomplete="off" v-model="editForm.expire_date" class="form-input" @click="openDatePicker">
         </div>
         <div class="form-group flex-1">
-          <label class="form-label">{{ trans.trafficResetDay }}</label>
+          <label class="form-label">
+            {{ trans.trafficResetDay }}
+            <HelpTooltip :text="trans.trafficResetDayTip" />
+          </label>
           <select ref="editResetDayRef" name="edit_reset_day" v-model="editForm.reset_day" class="form-select">
             <option :value="0">0</option>
             <option v-for="day in 31" :key="day" :value="day">{{ day }}</option>
@@ -95,9 +96,12 @@
         </div>
       </div>
 
-      <div class="form-row">
+      <div class="form-row mobile-two-row">
         <div class="form-group flex-1">
-          <label class="form-label">{{ trans.collectInterval }}</label>
+          <label class="form-label">
+            {{ trans.collectInterval }}
+            <HelpTooltip :text="trans.collectIntervalHint" />
+          </label>
           <select v-model="editForm.collect_interval" class="form-select">
             <option :value="0">0</option>
             <option :value="1">1</option>
@@ -116,52 +120,108 @@
           </select>
         </div>
         <div class="form-group flex-1">
-          <label class="form-label">{{ trans.connectionMode }}</label>
+          <label class="form-label">
+            {{ trans.connectionMode }}
+            <HelpTooltip v-if="!isWssReportEnabled" :text="trans.wssReportDisabledConnectionHint" />
+          </label>
           <select v-model="editForm.connection_mode" class="form-select" :disabled="!isWssReportEnabled">
             <option value="auto">{{ trans.connectionModeAuto }}</option>
             <option value="http">{{ trans.connectionModeHttp }}</option>
           </select>
-          <p v-if="!isWssReportEnabled" class="text-muted text-sm mt-1">{{ trans.wssReportDisabledConnectionHint }}</p>
+        </div>
+        <div v-if="isWssReportEnabled && editForm.connection_mode === 'auto'" class="form-group flex-1">
+          <label class="form-label">{{ trans.wssReportInterval }}</label>
+          <select v-model="editForm.wss_report_interval" class="form-select">
+            <option v-for="second in 5" :key="second" :value="second">{{ second }}</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row mobile-two-row">
+        <div class="form-group flex-1">
+          <label class="form-label">
+            {{ trans.pingMode }}
+            <HelpTooltip :text="trans.pingModeIcmpRootHint" />
+          </label>
+          <select v-model="editForm.ping_mode" class="form-select">
+            <option value="tcp">TCP</option>
+            <option value="icmp">ICMP (root)</option>
+          </select>
         </div>
         <div class="form-group flex-1">
           <label class="form-label">{{ trans.networkInterface }}</label>
           <input type="text" name="edit_interface" autocomplete="off" v-model.trim="editForm.interface" class="form-input" :placeholder="trans.networkInterfacePlaceholder">
         </div>
-      </div>
-
-      <div class="form-row">
         <div class="form-group flex-1">
-          <label class="form-label">{{ trans.rxCorrection }} (GB)</label>
+          <label class="form-label">
+            {{ trans.rxCorrection }} (GB)
+            <HelpTooltip :text="trans.correctionHint" />
+          </label>
           <input type="number" name="edit_rx_correction" autocomplete="off" v-model="editForm.rx_correction" class="form-input" placeholder="0" min="0" step="0.1">
         </div>
         <div class="form-group flex-1">
-          <label class="form-label">{{ trans.txCorrection }} (GB)</label>
+          <label class="form-label">
+            {{ trans.txCorrection }} (GB)
+            <HelpTooltip :text="trans.correctionHint" />
+          </label>
           <input type="number" name="edit_tx_correction" autocomplete="off" v-model="editForm.tx_correction" class="form-input" placeholder="0" min="0" step="0.1">
         </div>
       </div>
 
       <div class="form-row">
         <div class="form-group flex-1">
-          <label class="form-label">{{ trans.customCt }} <span class="text-xs text-muted">({{ trans.serverLevel }})</span></label>
+          <label class="form-label">
+            {{ settings.custom_ct_name || trans.customCt }}
+            <HelpTooltip :text="trans.pingNodeTip" />
+          </label>
           <input type="text" name="edit_custom_ct" autocomplete="off" v-model.trim="editForm.custom_ct" :class="['form-input', { 'input-invalid': pingNodeErrors.custom_ct }]" :placeholder="settings.custom_ct || 'gd-ct-dualstack.ip.zstaticcdn.com'">
           <p v-if="pingNodeErrors.custom_ct" class="text-red text-sm mt-1">{{ pingNodeErrors.custom_ct }}</p>
         </div>
         <div class="form-group flex-1">
-          <label class="form-label">{{ trans.customCu }} <span class="text-xs text-muted">({{ trans.serverLevel }})</span></label>
+          <label class="form-label">
+            {{ settings.custom_cu_name || trans.customCu }}
+            <HelpTooltip :text="trans.pingNodeTip" />
+          </label>
           <input type="text" name="edit_custom_cu" autocomplete="off" v-model.trim="editForm.custom_cu" :class="['form-input', { 'input-invalid': pingNodeErrors.custom_cu }]" :placeholder="settings.custom_cu || 'gd-cu-dualstack.ip.zstaticcdn.com'">
           <p v-if="pingNodeErrors.custom_cu" class="text-red text-sm mt-1">{{ pingNodeErrors.custom_cu }}</p>
         </div>
       </div>
       <div class="form-row">
         <div class="form-group flex-1">
-          <label class="form-label">{{ trans.customCm }} <span class="text-xs text-muted">({{ trans.serverLevel }})</span></label>
+          <label class="form-label">
+            {{ settings.custom_cm_name || trans.customCm }}
+            <HelpTooltip :text="trans.pingNodeTip" />
+          </label>
           <input type="text" name="edit_custom_cm" autocomplete="off" v-model.trim="editForm.custom_cm" :class="['form-input', { 'input-invalid': pingNodeErrors.custom_cm }]" :placeholder="settings.custom_cm || 'gd-cm-dualstack.ip.zstaticcdn.com'">
           <p v-if="pingNodeErrors.custom_cm" class="text-red text-sm mt-1">{{ pingNodeErrors.custom_cm }}</p>
         </div>
         <div class="form-group flex-1">
-          <label class="form-label">{{ trans.customBd }} <span class="text-xs text-muted">({{ trans.serverLevel }})</span></label>
+          <label class="form-label">
+            {{ settings.custom_bd_name || trans.customBd }}
+            <HelpTooltip :text="trans.pingNodeTip" />
+          </label>
           <input type="text" name="edit_custom_bd" autocomplete="off" v-model.trim="editForm.custom_bd" :class="['form-input', { 'input-invalid': pingNodeErrors.custom_bd }]" :placeholder="settings.custom_bd || 'ip.zstaticcdn.com'">
           <p v-if="pingNodeErrors.custom_bd" class="text-red text-sm mt-1">{{ pingNodeErrors.custom_bd }}</p>
+        </div>
+      </div>
+      <div class="form-row">
+        <div v-for="(field, index) in ['node_1', 'node_2']" :key="field" class="form-group flex-1">
+          <label class="form-label">
+            {{ settings[`${field}_name`] || `Node ${index + 1}` }}
+            <HelpTooltip :text="trans.pingNodeTip" />
+          </label>
+          <input type="text" :name="`edit_${field}`" autocomplete="off" v-model.trim="editForm[field]" :class="['form-input', { 'input-invalid': pingNodeErrors[field] }]" placeholder="host[:port] / [IPv6]:port">
+          <p v-if="pingNodeErrors[field]" class="text-red text-sm mt-1">{{ pingNodeErrors[field] }}</p>
+        </div>
+      </div>
+      <div class="form-row">
+        <div v-for="(field, index) in ['node_3', 'node_4']" :key="field" class="form-group flex-1">
+          <label class="form-label">
+            {{ settings[`${field}_name`] || `Node ${index + 3}` }}
+            <HelpTooltip :text="trans.pingNodeTip" />
+          </label>
+          <input type="text" :name="`edit_${field}`" autocomplete="off" v-model.trim="editForm[field]" :class="['form-input', { 'input-invalid': pingNodeErrors[field] }]" placeholder="host[:port] / [IPv6]:port">
+          <p v-if="pingNodeErrors[field]" class="text-red text-sm mt-1">{{ pingNodeErrors[field] }}</p>
         </div>
       </div>
       <div class="form-row">
@@ -192,12 +252,6 @@
           </div>
         </div>
       </div>
-      <div class="text-muted text-sm mb-3">
-        <span class="warning-icon">[i]</span> {{ trans.collectIntervalHint }}<br>
-        <span class="warning-icon">[i]</span> {{ trans.correctionHint }}<br>
-        <span class="warning-icon">[i]</span> {{ trans.trafficResetDayTip }}
-      </div>
-
       <div class="modal-footer flex-justify-between">
         <button @click="$emit('save')" class="btn btn-primary" :disabled="hasPingNodeErrors">{{ trans.save }}</button>
         <button @click="$emit('close')" class="btn">{{ trans.cancel }}</button>
@@ -208,6 +262,7 @@
 
 <script setup>
 import { computed, watch } from 'vue'
+import HelpTooltip from '../../../components/HelpTooltip.vue'
 import { PING_NODE_FIELDS, validatePingNode } from '../../../utils/pingNode.js'
 import { currentLang } from '../../../utils/i18n.js'
 import { BILLING_CYCLES, CURRENCY_OPTIONS, normalizePrice, renewExpireDateIfNeeded } from '../../../utils/server.js'
@@ -236,6 +291,16 @@ const hasPingNodeErrors = computed(() => Object.values(pingNodeErrors.value).som
 
 const billingCycleOptions = BILLING_CYCLES
 const currencyOptions = CURRENCY_OPTIONS
+const currencySelectOptions = computed(() => {
+  const currentCurrency = String(editForm.value.currency || '').trim()
+  if (!currentCurrency || currencyOptions.some(item => item.symbol === currentCurrency)) {
+    return currencyOptions
+  }
+  return [
+    { symbol: currentCurrency, nameZh: currentCurrency, nameEn: currentCurrency },
+    ...currencyOptions
+  ]
+})
 
 const cycleLabel = (item) => currentLang.value === 'zh' ? item.labelZh : item.labelEn
 const currencyLabel = (item) => currentLang.value === 'zh'

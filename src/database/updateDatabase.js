@@ -6,6 +6,7 @@ import {
   normalizeCurrency,
   normalizePrice
 } from '../utils/serverBilling.js';
+import { HISTORY_UPGRADE_COLUMNS } from '../utils/historyFields.js';
 
 
 export async function updateDatabase(db) {
@@ -133,12 +134,18 @@ export async function addServerColumns(db) {
       reset_day: "INTEGER DEFAULT 1",
       collect_interval: "INTEGER DEFAULT 0",
       report_interval: "INTEGER DEFAULT 60",
+      wss_report_interval: "INTEGER DEFAULT 2",
       connection_mode: "TEXT DEFAULT 'auto'",
+      ping_mode: "TEXT DEFAULT 'tcp'",
       auto_update: "TEXT DEFAULT '0'",
       custom_ct: "TEXT DEFAULT ''",
       custom_cu: "TEXT DEFAULT ''",
       custom_cm: "TEXT DEFAULT ''",
       custom_bd: "TEXT DEFAULT ''",
+      node_1: "TEXT DEFAULT ''",
+      node_2: "TEXT DEFAULT ''",
+      node_3: "TEXT DEFAULT ''",
+      node_4: "TEXT DEFAULT ''",
       rx_correction: "REAL DEFAULT NULL",
       tx_correction: "REAL DEFAULT NULL",
       traffic_calc_type: "TEXT DEFAULT 'total'",
@@ -186,7 +193,7 @@ async function cleanupServerExtraColumns(db) {
     const { results: columns } = await db.prepare(`PRAGMA table_info(servers)`).all();
     const existingCols = columns.map(c => c.name);
     
-    const extraCols = ['cpu', 'ram', 'disk', 'load_avg', 'uptime', 'last_updated', 'ram_total', 'net_rx', 'net_tx', 'net_in_speed', 'net_out_speed', 'os', 'cpu_info', 'cpu_cores' , 'arch' ,'boot_time', 'ram_used', 'swap_total', 'swap_used', 'disk_total', 'disk_used', 'processes', 'tcp_conn', 'udp_conn', 'country', 'ip_v4', 'ip_v6', 'ping_ct', 'ping_cu', 'ping_cm', 'ping_bd', 'monthly_rx', 'monthly_tx', 'last_rx', 'last_tx', 'reset_month', 'bandwidth', 'ping_mode'];
+    const extraCols = ['cpu', 'ram', 'disk', 'load_avg', 'uptime', 'last_updated', 'ram_total', 'net_rx', 'net_tx', 'net_in_speed', 'net_out_speed', 'os', 'cpu_info', 'cpu_cores' , 'arch' ,'boot_time', 'ram_used', 'swap_total', 'swap_used', 'disk_total', 'disk_used', 'processes', 'tcp_conn', 'udp_conn', 'country', 'ip_v4', 'ip_v6', 'ping_ct', 'ping_cu', 'ping_cm', 'ping_bd', 'monthly_rx', 'monthly_tx', 'last_rx', 'last_tx', 'reset_month', 'bandwidth'];
     const colsToDrop = extraCols.filter(col => existingCols.includes(col));
     
     if (colsToDrop.length === 0) {
@@ -207,31 +214,7 @@ async function cleanupServerExtraColumns(db) {
 
 export async function addHistoryColumns(db) {
   try {
-    const newHistoryCols = {
-      cpu_cores: "INTEGER DEFAULT 0",
-      cpu_info: "TEXT DEFAULT ''",
-      agent_version: "TEXT DEFAULT ''",
-      gpu_info: "TEXT DEFAULT ''",
-      arch: "TEXT DEFAULT ''",
-      os: "TEXT DEFAULT ''",
-      kernel_version: "TEXT DEFAULT ''",
-      region: "TEXT DEFAULT ''",
-      ip_v4: "TEXT DEFAULT '0'",
-      ip_v6: "TEXT DEFAULT '0'",
-      boot_time: "TEXT DEFAULT ''",
-      net_rx_monthly: "REAL DEFAULT 0",
-      net_tx_monthly: "REAL DEFAULT 0",
-      disk_read_bps: "REAL",
-      disk_write_bps: "REAL",
-      disk_read_iops: "REAL",
-      disk_write_iops: "REAL",
-      disk_await_ms: "REAL",
-      disk_util: "REAL",
-      loss_ct: "INTEGER DEFAULT NULL",
-      loss_cu: "INTEGER DEFAULT NULL",
-      loss_cm: "INTEGER DEFAULT NULL",
-      loss_bd: "INTEGER DEFAULT NULL"
-    };
+    const newHistoryCols = HISTORY_UPGRADE_COLUMNS;
 
     const tables = ['metrics_history'];
     const oldTable = await db.prepare(

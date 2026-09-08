@@ -3,10 +3,13 @@ import { ref, reactive, computed } from 'vue'
 const translations = reactive({
   en: {
     theme: 'Theme',
-    themeAuto: 'Auto',
+    themeAuto: 'Follow System',
     themeDark: 'Dark',
     themeLight: 'Light',
     language: 'Lang',
+    languageAuto: 'Auto',
+    languageChinese: 'Chinese',
+    languageEnglish: 'English',
     barChart: 'BAR CHART',
     ringChart: 'RING CHART',
     table: 'TABLE',
@@ -29,6 +32,9 @@ const translations = reactive({
     financeRateStaleCache: 'cached fallback',
     financeRateDefault: 'built-in fallback',
     realtime: 'Real-time',
+    liveConnectionTimeoutTitle: 'Real-time connection ended',
+    liveConnectionTimeoutMessage: 'The real-time connection reached its time limit and was closed. Continue receiving live updates?',
+    continueConnection: 'Continue',
     online: 'Online',
     offline: 'Offline',
     noServer: 'No servers available, please add in',
@@ -84,7 +90,7 @@ const translations = reactive({
     pingCt: 'CT',
     pingCu: 'CU',
     pingCm: 'CM',
-    pingBd: 'BD',
+    pingBd: 'BGP',
     loadAvgMonitor: 'Load Average Monitor',
     load1m: '1 Min',
     load5m: '5 Min',
@@ -139,9 +145,12 @@ const translations = reactive({
     copy: 'Copy',
     edit: 'Edit',
     delete: 'Delete',
+    custom: 'Custom',
     siteTitle: 'Site Title',
     appearance: 'Appearance',
     bgImage: 'Background Image',
+    mobileBgImage: 'Mobile Background Image',
+    remoteImageTip: 'For remote images, add the image origin to the CSP Static Domains whitelist.',
     favicon: 'Favicon',
     upload: 'UPLOAD',
     customHead: 'Custom <head>',
@@ -159,14 +168,26 @@ const translations = reactive({
     displayModeBar: 'Bar Chart',
     displayModeRing: 'Ring Chart',
     displayModeTable: 'Table',
+    defaultTheme: 'Default Appearance',
+    defaultLanguage: 'Default Language',
     displayOptions: 'Display Options',
     wssReportEnabled: 'Agent WSS Reporting',
-    wssReportTip: 'Enabling WSS reduces Workers requests and lowers latency by about 15x, but it can use 80%+ of Durable Objects duration regardless of server count. You may receive an overage email around midnight every day. Recommended to enable.',
+    wssReportTip: 'Enabling WSS reduces Workers requests and increases real-time performance, but enabling it 24 hours a day can use 85% of Durable Objects duration regardless of server count. Recommended to enable when no other projects are using Durable Objects.',
+    wssReportHours: 'Active Hours',
+    wssReportHoursTip: 'The panel shows local hours. Settings are saved as UTC hours, and agents use HTTP reporting outside the selected hours.',
+    localTime: 'Local time',
+    hoursSelected: 'hours selected',
+    agentWssMinVersion: 'Agent v1.0.10+ required',
+    selectAll: 'Select all',
+    clear: 'Clear',
+    frontendWsTimeoutMinutes: 'Frontend WSS Timeout (minutes)',
+    frontendWsTimeoutMinutesTip: 'Close the real-time frontend connection after this many minutes. 0 disables the timeout.',
+    invalidFrontendWsTimeoutMinutes: 'Frontend WSS timeout must be an integer from 0 to 1440 minutes.',
     publicAccess: 'Public Access',
     showPrice: 'Show Price',
     showExpire: 'Show Expiration',
     showTf: 'Show Traffic Quota',
-    showTime: 'Show TIME',
+    showThreeNetDetails: 'Show CT/CU/CM Details',
     longHistoryPoints: 'Long-range History Points',
     longHistoryPointsTip: 'Number of samples returned for queries longer than 1 hour. More points provide finer detail but read more rows.',
     historyPointCount: '{points} points',
@@ -208,6 +229,22 @@ const translations = reactive({
     resourceAlertTip: 'Add rules to enable resource load alerts; removing all rules disables them. Overlapping rules for the same server and monitor item are notified separately. After alerts are enabled, DO keeps one sample per server per minute, up to 10 minutes.',
     telegramToken: 'Telegram / WeChat / Feishu / DingTalk / Bark / Server酱 / WxPusher / Gotify / OneBot',
     chatId: 'Chat ID',
+    notificationChannel: 'Notification Channel',
+    builtinNotification: 'Built-in Channel',
+    customWebhook: 'Custom Webhook',
+    webhookUrl: 'Webhook URL',
+    webhookMethod: 'Method',
+    webhookFormat: 'Body Format',
+    webhookHeaders: 'Headers',
+    webhookBody: 'Body',
+    webhookParams: 'Query Params',
+    notificationTemplate: 'Notification Template',
+    notificationTimezone: 'Notification Timezone',
+    notificationTimezoneTip: 'Used only for notification output times and expiration reminder schedule. Use an IANA timezone such as Asia/Shanghai.',
+    expireNotificationTime: 'Expiration Reminder Time',
+    expireNotificationTimeTip: 'Check expiration status and send reminders daily at the selected hour in the notification timezone. Use 0-23.',
+    invalidNotificationTimezone: 'Notification timezone must be a valid IANA timezone, for example Asia/Shanghai.',
+    invalidExpireNotificationTime: 'Expiration notification time must be an integer from 0 to 23.',
     saveConfig: 'SAVE CONFIGURATION',
     saving: 'SAVING...',
     hostnameLabel: 'Hostname',
@@ -239,6 +276,12 @@ const translations = reactive({
     addFailed: '[ERROR] Add failed',
     serverAdded: '[OK] Server added',
     serverUpdated: '[OK] Server updated',
+    batchEdit: 'Batch Edit',
+    batchEditSuccess: '[OK] Batch edited {count} servers',
+    noBatchEditFields: 'Please select fields to update',
+    selectServersToEdit: 'Please select servers to edit',
+    basicInfo: 'Basic Info',
+    billing: 'Billing',
     deleteFailed: '[ERROR] Delete failed',
     selectServers: '[WARN] Please select servers to delete',
     confirmDeleteServers: '[?] Delete ',
@@ -265,7 +308,7 @@ const translations = reactive({
     operationSuccess: 'Operation successful',
     operationFailed: 'Operation failed',
     invalidServerName: 'Invalid server name',
-    invalidPingNodeFormat: 'Use domain, IPv4, or host:port. Port must be 1-65535; IPv6 literals are not supported.',
+    invalidPingNodeFormat: 'Use domain, IPv4, IPv6, or host:port. IPv6 with a port must use [address]:port; port must be 1-65535.',
     invalidNetworkInterface: 'Network interface names are invalid. Use comma-separated names, for example eth0,ens3.',
     invalidThemeOptionsFormat: 'Theme options must be a valid JSON object, for example {"a":1,"b":2}.',
     invalidTrafficCorrection: 'Traffic correction must be a number from 0 to 1,000,000 GB',
@@ -281,23 +324,27 @@ const translations = reactive({
     clearing: 'Clearing...',
     collectInterval: 'Collect Interval (seconds)',
     reportInterval: 'Report Interval (seconds)',
+    wssReportInterval: 'WSS Report Interval (seconds)',
     connectionMode: 'Connection Mode',
     connectionModeAuto: 'Auto (WSS + POST fallback)',
     connectionModeHttp: 'HTTP POST only',
-    wssReportDisabledConnectionHint: 'Agent WSS reporting is disabled globally, so this server is forced to HTTP POST.',
+    pingMode: 'Ping Mode',
+    pingModeIcmpRootHint: 'ICMP is supported only when the agent is installed as root.',
+    wssReportDisabledConnectionHint: 'WSS reporting is disabled globally, please enable it in settings.',
     targetOs: 'Target System',
     copied: 'Copied!',
     close: 'Close',
     agentVersionSelect: 'Agent Version',
     agentVersionShell: 'Shell Version',
     agentVersionGo: 'Go Version',
-    ghProxy: 'Third-party GitHub Proxy (Use at your own risk)',
+    ghProxy: 'Third-party GitHub Proxy',
+    ghProxyTip: 'Use only trusted proxy services. Third-party proxies can see or modify downloaded installation files and may introduce security risks.',
     ghProxyPlaceholder: 'Direct',
     pingNodes: 'Ping Nodes',
-    customCt: 'China Telecom Node',
-    customCu: 'China Union Telecom Node',
-    customCm: 'China Mobile Telecom Node',
-    customBd: 'BD Node',
+    customCt: 'Telecom',
+    customCu: 'Union Telecom',
+    customCm: 'Mobile Telecom',
+    customBd: 'BGP',
     jwtSecretTip: 'JWT secret is used to generate and verify login tokens. Use a random string of at least 32 characters.',
     jwtSecretMinLength: 'JWT Secret must be at least 32 characters long',
     jwtSecretNoWhitespace: 'JWT Secret should not contain whitespace',
@@ -331,6 +378,7 @@ const translations = reactive({
     rxCorrection: 'Download Correction',
     txCorrection: 'Upload Correction',
     correctionHint: 'If only one side is set, the other side is overwritten as 0.',
+    pingNodeTip: 'Override global default nodes, set 0 to not use the node.',
     serverLevel: 'server',
     trafficCalcType: 'Traffic Calculation Type',
     trafficCalcTotal: 'Upload + Download',
@@ -385,6 +433,7 @@ const translations = reactive({
     turnstileSiteKeyRequired: 'Turnstile Site Key is required when Turnstile is enabled',
     turnstileSecretKeyRequired: 'Turnstile Secret Key is required when Turnstile is enabled',
     tgBotTokenRequired: 'Telegram Bot Token is required when notifications are enabled',
+    notificationWebhookUrlRequired: 'Webhook URL is required when custom webhook is enabled',
     disableOfflineNotify: 'Disable Offline Notification',
     disableNodeNotify: 'Disable This Node Notifications',
     sendTestNotification: 'Send Test',
@@ -438,10 +487,13 @@ const translations = reactive({
   zh: {
     collectInterval: '采集间隔（秒）',
     theme: '主题',
-    themeAuto: '自动',
+    themeAuto: '跟随系统',
     themeDark: '深色',
     themeLight: '浅色',
     language: '语言',
+    languageAuto: '自动',
+    languageChinese: '中文',
+    languageEnglish: '英文',
     barChart: '条形图',
     ringChart: '环形图',
     table: '列表',
@@ -464,6 +516,9 @@ const translations = reactive({
     financeRateStaleCache: '缓存回退',
     financeRateDefault: '内置回退',
     realtime: '实时',
+    liveConnectionTimeoutTitle: '实时连接已超时',
+    liveConnectionTimeoutMessage: '实时连接已达到时限并断开，是否继续接收实时更新？',
+    continueConnection: '继续',
     online: '在线',
     offline: '离线',
     noServer: '暂无服务器，请在',
@@ -506,7 +561,7 @@ const translations = reactive({
     networkTraffic: '网络',
     processes: '进程',
     connections: '连接数',
-    latencyMonitor: '延迟监控',
+    latencyMonitor: '延迟',
     packetLoss: '丢包率',
     databaseUpgradeRequired: '请进入后台点击升级数据库',
     swap: '交换分区',
@@ -549,7 +604,7 @@ const translations = reactive({
     group: '分组',
     tags: '标签',
     note: '备注',
-    tagsPlaceholder: '英文逗号割开',
+    tagsPlaceholder: '英文逗号隔开',
     notePlaceholder: '内部备注，仅在管理端显示',
     addServer: '添加服务器',
     batchDelete: '批量删除',
@@ -574,9 +629,12 @@ const translations = reactive({
     copy: '复制',
     edit: '编辑',
     delete: '删除',
+    custom: '自定义',
     siteTitle: '站点标题',
     appearance: '外观',
     bgImage: '背景图片',
+    mobileBgImage: '手机背景图片',
+    remoteImageTip: '使用远程图片时，需要将图片域名添加到 CSP 静态文件域名白名单。',
     favicon: '网站图标',
     upload: '上传',
     customHead: '自定义 <head>',
@@ -594,14 +652,26 @@ const translations = reactive({
     displayModeBar: '条形图',
     displayModeRing: '环形图',
     displayModeTable: '列表',
+    defaultTheme: '默认外观',
+    defaultLanguage: '默认语言',
     displayOptions: '显示选项',
     wssReportEnabled: 'Agent WSS 上报',
-    wssReportTip: '开启 WSS 可减少 Workers 请求量，降低约 15 倍延迟；会占用 80%+ Durable Objects 时长消耗（和服务器数量无关），每天半夜可能收到一封超额邮件，建议开启。',
+    wssReportTip: '开启 WSS 可减少 Workers 请求量，增加实时性；24 小时开启会占用 85% Durable Objects 时长消耗（和服务器数量无关），无其他项目占用的情况下，建议开启。',
+    wssReportHours: 'WSS 开启时段',
+    wssReportHoursTip: '面板按本地时区显示小时，设置保存为 UTC 小时；未选中时段 Agent 自动使用 HTTP 上报。',
+    localTime: '本地时间',
+    hoursSelected: '小时已选',
+    agentWssMinVersion: 'Agent 必须升级到 v1.0.10+',
+    selectAll: '全选',
+    clear: '清空',
+    frontendWsTimeoutMinutes: '前端 WSS 超时（分钟）',
+    frontendWsTimeoutMinutesTip: '前端实时连接达到该时长后断开并提示；0 表示不超时。',
+    invalidFrontendWsTimeoutMinutes: '前端 WSS 超时必须是 0 到 1440 之间的整数分钟。',
     publicAccess: '公开访问',
     showPrice: '显示价格',
     showExpire: '显示到期时间',
     showTf: '显示流量配额',
-    showTime: '显示TIME',
+    showThreeNetDetails: '显示三网详情',
     longHistoryPoints: '长时历史数据点数',
     longHistoryPointsTip: '查询超过 1 小时时返回的采样点数。点数越多，细节越丰富，但读取行数也越多。',
     historyPointCount: '{points} 个点',
@@ -643,6 +713,22 @@ const translations = reactive({
     resourceAlertTip: '添加规则表示开启资源负载告警；删除全部规则表示关闭。同一服务器同一监控项配置多条规则会分别触发通知。启用后 DO 按每台服务器每分钟缓存一个样本，最多保留 10 分钟。',
     telegramToken: 'Telegram / 企业微信 / 飞书 / 钉钉 / Bark / Server酱 / WxPusher / Gotify / OneBot',
     chatId: '聊天 ID',
+    notificationChannel: '通知渠道',
+    builtinNotification: '内置渠道',
+    customWebhook: '自定义 Webhook',
+    webhookUrl: 'Webhook URL',
+    webhookMethod: '请求方法',
+    webhookFormat: 'Body 格式',
+    webhookHeaders: '请求头',
+    webhookBody: '请求体',
+    webhookParams: '查询参数',
+    notificationTemplate: '通知模板',
+    notificationTimezone: '通知时区',
+    notificationTimezoneTip: '仅用于通知输出时间和到期提醒计划。请填写 IANA 时区，例如 Asia/Shanghai。',
+    expireNotificationTime: '到期提醒时间',
+    expireNotificationTimeTip: '每天按通知时区在所选小时检查到期状态并发送提醒，取值 0-23。',
+    invalidNotificationTimezone: '通知时区必须是有效 IANA 时区，例如 Asia/Shanghai。',
+    invalidExpireNotificationTime: '到期通知时间必须是 0 到 23 的整数。',
     saveConfig: '保存配置',
     saving: '保存中...',
     hostnameLabel: '主机名',
@@ -674,6 +760,12 @@ const translations = reactive({
     addFailed: '[错误] 添加失败',
     serverAdded: '[成功] 服务器已添加',
     serverUpdated: '[成功] 服务器已更新',
+    batchEdit: '批量编辑',
+    batchEditSuccess: '[成功] 已批量编辑 {count} 台服务器',
+    noBatchEditFields: '请选择要更新的字段',
+    selectServersToEdit: '请选择要编辑的服务器',
+    basicInfo: '基础信息',
+    billing: '账单信息',
     deleteFailed: '[错误] 删除失败',
     selectServers: '[警告] 请选择要删除的服务器',
     confirmDeleteServers: '[?] 确定要删除 ',
@@ -700,7 +792,7 @@ const translations = reactive({
     operationSuccess: '操作成功',
     operationFailed: '操作失败',
     invalidServerName: '服务器名称无效',
-    invalidPingNodeFormat: '请输入域名、IPv4 或 host:port，端口范围 1-65535；暂不支持 IPv6 字面量。',
+    invalidPingNodeFormat: '请输入域名、IPv4、IPv6 或 host:port；IPv6 加端口请使用 [地址]:端口，端口范围 1-65535。',
     invalidNetworkInterface: '网卡名称格式无效，请用英文逗号分隔，例如 eth0,ens3。',
     invalidThemeOptionsFormat: '主题自定义配置必须是合法 JSON object，例如 {"a":1,"b":2}。',
     invalidTrafficCorrection: '流量校正必须是 0 到 1,000,000 GB 之间的数字',
@@ -715,23 +807,27 @@ const translations = reactive({
     upgrading: '升级中...',
     clearing: '清空中...',
     reportInterval: '上报间隔（秒）',
+    wssReportInterval: 'WSS 上报间隔（秒）',
     connectionMode: '连接模式',
     connectionModeAuto: '自动（WSS + POST 兜底）',
     connectionModeHttp: '仅 HTTP POST',
-    wssReportDisabledConnectionHint: 'Agent WSS 上报已全局关闭，此服务器会强制使用 HTTP POST。',
+    pingMode: 'Ping 模式',
+    pingModeIcmpRootHint: 'ICMP 必须以 root 安装才支持。',
+    wssReportDisabledConnectionHint: 'WSS 上报已全局关闭，请在设置中开启。',
     targetOs: '目标系统',
     copied: '已复制！',
     close: '关闭',
     agentVersionSelect: '探针版本',
     agentVersionShell: 'Shell 版本',
     agentVersionGo: 'Go 版本',
-    ghProxy: '第三方GitHub 代理（注意安全风险）',
+    ghProxy: '第三方 GitHub 代理',
+    ghProxyTip: '仅使用可信代理服务。第三方代理可能查看或篡改下载的安装文件，存在安全风险。',
     ghProxyPlaceholder: '海外直连即可',
     pingNodes: 'Ping节点',
-    customCt: '电信测试节点',
-    customCu: '联通测试节点',
-    customCm: '移动测试节点',
-    customBd: 'BD测试节点',
+    customCt: '电信',
+    customCu: '联通',
+    customCm: '移动',
+    customBd: 'BGP',
     jwtSecretTip: 'JWT密钥用于生成和验证登录token。使用至少32个字符的随机字符串。',
     jwtSecretMinLength: 'JWT Secret至少需要32个字符',
     jwtSecretNoWhitespace: 'JWT Secret不应包含空格',
@@ -764,6 +860,7 @@ const translations = reactive({
     rxCorrection: '下行流量校正',
     txCorrection: '上行流量校正',
     correctionHint: '流量校正只填一项时另一项按 0 覆盖清空',
+    pingNodeTip: '覆盖全局默认节点，设0表示不使用该节点',
     serverLevel: '服务器级',
     trafficCalcType: '月流量计算类型',
     trafficCalcTotal: '上行+下行',
@@ -818,6 +915,7 @@ const translations = reactive({
     turnstileSiteKeyRequired: '启用 Turnstile 时必须填写站点密钥',
     turnstileSecretKeyRequired: '启用 Turnstile 时必须填写密钥',
     tgBotTokenRequired: '启用通知时必须填写 Telegram Bot Token',
+    notificationWebhookUrlRequired: '启用自定义 Webhook 时必须填写 Webhook URL',
     disableOfflineNotify: '关闭离线通知',
     disableNodeNotify: '关闭该节点通知',
     sendTestNotification: '发送测试',
@@ -870,21 +968,66 @@ const translations = reactive({
   }
 })
 
-const currentLang = ref(localStorage.getItem('language_preference') || 'zh')
+const LANGUAGE_STORAGE_KEY = 'language_preference'
+let defaultLanguage = 'auto'
+
+export const normalizeLanguagePreference = (lang, fallback = 'auto') => {
+  const value = String(lang || '').trim().toLowerCase()
+  if (value === 'zh' || value === 'en' || value === 'auto') return value
+  return fallback === 'zh' || fallback === 'en' ? fallback : 'auto'
+}
+
+export const isChineseBrowserLanguage = (lang) => {
+  const value = String(lang || '').trim().toLowerCase().replace('_', '-')
+  return value === 'zh' ||
+    value.startsWith('zh-') ||
+    value === 'cmn' ||
+    value.startsWith('cmn-') ||
+    value === 'yue' ||
+    value.startsWith('yue-') ||
+    value === 'wuu' ||
+    value.startsWith('wuu-')
+}
+
+export const getBrowserLanguage = () => {
+  if (typeof navigator === 'undefined') return 'en'
+  const languages = Array.isArray(navigator.languages) && navigator.languages.length > 0
+    ? navigator.languages
+    : [navigator.language]
+  return languages.some(isChineseBrowserLanguage) ? 'zh' : 'en'
+}
+
+export const resolveLanguagePreference = (lang) => {
+  const value = normalizeLanguagePreference(lang)
+  return value === 'auto' ? getBrowserLanguage() : value
+}
+
+const currentLang = ref(resolveLanguagePreference(localStorage.getItem(LANGUAGE_STORAGE_KEY) || defaultLanguage))
 
 export const t = (key) => {
   return translations[currentLang.value]?.[key] || translations.en[key] || key
 }
 
 export const setLanguage = (lang) => {
-  if (translations[lang]) {
-    currentLang.value = lang
-    localStorage.setItem('language_preference', lang)
-    window.dispatchEvent(new CustomEvent('languageChanged', { detail: { lang } }))
+  const resolvedLang = normalizeLanguagePreference(lang, '')
+  if (translations[resolvedLang]) {
+    currentLang.value = resolvedLang
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, resolvedLang)
+    window.dispatchEvent(new CustomEvent('languageChanged', { detail: { lang: resolvedLang } }))
   }
 }
 
 export const getLanguage = () => currentLang.value
+
+export const applyDefaultLanguage = (lang) => {
+  defaultLanguage = normalizeLanguagePreference(lang)
+  const storedLanguage = normalizeLanguagePreference(localStorage.getItem(LANGUAGE_STORAGE_KEY), '')
+  const resolvedLang = translations[storedLanguage]
+    ? storedLanguage
+    : resolveLanguagePreference(defaultLanguage)
+  currentLang.value = resolvedLang
+  window.dispatchEvent(new CustomEvent('languageChanged', { detail: { lang: resolvedLang } }))
+}
 
 export const toggleLanguage = () => {
   const newLang = currentLang.value === 'en' ? 'zh' : 'en'
@@ -899,4 +1042,4 @@ export const useTranslation = () => {
   return trans
 }
 
-export default { t, setLanguage, getLanguage, toggleLanguage, currentLang, translations, useTranslation }
+export default { t, setLanguage, getLanguage, applyDefaultLanguage, toggleLanguage, currentLang, translations, useTranslation }

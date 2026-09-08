@@ -3,12 +3,13 @@ import App from './App.vue'
 import router from './router'
 import './styles/main.css'
 import './styles/light.css'
-import { currentLang, translations } from './utils/i18n'
+import { applyDefaultLanguage, currentLang, resolveLanguagePreference, translations } from './utils/i18n'
 import { http } from './utils/http'
 import { initConfig, hasMultipleApiBases } from './utils/config'
-import { LAST_AGENT_VERSION, LAST_WORKERS_VERSION, VERSION } from './utils/api'
+import { LAST_AGENT_VERSION, LAST_WORKERS_VERSION, VERSION, normalizeLiveSocketTimeoutMinutes } from './utils/api'
 import { resolveDisplayMode } from './utils/displayMode'
 import { getMikusAssetUrl, isMikusThemeEnabled, normalizeThemeOptions, setMikusThemeClass } from './utils/themeOptions'
+import { applyDefaultTheme } from './composables/useTheme'
 import {
   clearTurnstileToken,
   fetchAllTurnstileConfigs,
@@ -20,7 +21,7 @@ import {
 } from './utils/turnstile'
 
 const getTranslation = () => {
-  const lang = localStorage.getItem('language_preference') || 'zh'
+  const lang = currentLang.value || resolveLanguagePreference(localStorage.getItem('language_preference') || 'auto')
   return translations[lang] || translations.en
 }
 
@@ -77,9 +78,12 @@ async function fetchConfig() {
         turnstile_login_enabled: false,
         turnstile_site_key: '',
         display_mode: 'bar',
+        preferred_theme: 'auto',
+        default_language: 'auto',
         version: '',
         last_workers_version: '',
         last_agent_version: '',
+        frontend_ws_timeout_minutes: 0,
         theme_options: {},
         verified: false
       }
@@ -92,9 +96,12 @@ async function fetchConfig() {
         turnstile_login_enabled: false,
         turnstile_site_key: '',
         display_mode: 'bar',
+        preferred_theme: 'auto',
+        default_language: 'auto',
         version: '',
         last_workers_version: '',
         last_agent_version: '',
+        frontend_ws_timeout_minutes: 0,
         theme_options: {},
         verified: false
       }
@@ -111,7 +118,10 @@ async function fetchConfig() {
     const authorization = data.authorization === true
     const siteTitle = data.site_title || ''
     const displayMode = resolveDisplayMode(data)
+    const preferredTheme = ['dark', 'light', 'auto'].includes(String(data.preferred_theme || '').toLowerCase()) ? String(data.preferred_theme).toLowerCase() : 'auto'
+    const defaultLanguage = ['zh', 'en', 'auto'].includes(String(data.default_language || '').toLowerCase()) ? String(data.default_language).toLowerCase() : 'auto'
     const themeOptions = normalizeThemeOptions(data.theme_options)
+    const frontendWsTimeoutMinutes = normalizeLiveSocketTimeoutMinutes(data.frontend_ws_timeout_minutes)
 
     if (version) {
       VERSION.value = version
@@ -123,6 +133,14 @@ async function fetchConfig() {
       turnstile_enabled: turnstileEnabled,
       turnstile_login_enabled: turnstileLoginEnabled,
       turnstile_site_key: turnstileSiteKey,
+      custom_ct_name: data.custom_ct_name || '电信',
+      custom_cu_name: data.custom_cu_name || '联通',
+      custom_cm_name: data.custom_cm_name || '移动',
+      custom_bd_name: data.custom_bd_name || 'BGP',
+      node_1_name: data.node_1_name || 'Node 1',
+      node_2_name: data.node_2_name || 'Node 2',
+      node_3_name: data.node_3_name || 'Node 3',
+      node_4_name: data.node_4_name || 'Node 4',
       version,
       last_workers_version: lastWorkersVersion,
       last_agent_version: lastAgentVersion,
@@ -131,6 +149,9 @@ async function fetchConfig() {
       authorization,
       site_title: siteTitle,
       display_mode: displayMode,
+      preferred_theme: preferredTheme,
+      default_language: defaultLanguage,
+      frontend_ws_timeout_minutes: frontendWsTimeoutMinutes,
       theme_options: themeOptions
     }
   } catch (e) {
@@ -140,10 +161,15 @@ async function fetchConfig() {
     turnstile_enabled: false,
     turnstile_login_enabled: false,
     turnstile_site_key: '',
+    custom_ct_name: '电信', custom_cu_name: '联通', custom_cm_name: '移动', custom_bd_name: 'BGP',
+    node_1_name: 'Node 1', node_2_name: 'Node 2', node_3_name: 'Node 3', node_4_name: 'Node 4',
     display_mode: 'bar',
+    preferred_theme: 'auto',
+    default_language: 'auto',
     version: '',
     last_workers_version: '',
     last_agent_version: '',
+    frontend_ws_timeout_minutes: 0,
     theme_options: {},
     verified: false
   }
@@ -300,6 +326,7 @@ async function initApp() {
         turnstile_login_enabled: isTurnstileValueEnabled(first.data.turnstile_login_enabled),
         turnstile_site_key: sharedTurnstileSite?.siteKey || first.data.turnstile_site_key || '',
         turnstile_api_index: sharedTurnstileSite?.index || 0,
+        site_configs: results.map(result => (!result.error && result.data) ? result.data : null),
         version: first.data.version || '',
         last_workers_version: first.data.last_workers_version || '',
         last_agent_version: first.data.last_agent_version || '',
@@ -308,8 +335,11 @@ async function initApp() {
         authorization: !privateAccess.hasUnauthorizedPrivateSite,
         site_title: first.data.site_title || '',
         display_mode: resolveDisplayMode(first.data),
+        preferred_theme: ['dark', 'light', 'auto'].includes(String(first.data.preferred_theme || '').toLowerCase()) ? String(first.data.preferred_theme).toLowerCase() : 'auto',
+        default_language: ['zh', 'en', 'auto'].includes(String(first.data.default_language || '').toLowerCase()) ? String(first.data.default_language).toLowerCase() : 'auto',
+        frontend_ws_timeout_minutes: normalizeLiveSocketTimeoutMinutes(first.data.frontend_ws_timeout_minutes),
         theme_options: normalizeThemeOptions(first.data.theme_options)
-      } : { turnstile_enabled: false, turnstile_login_enabled: false, turnstile_site_key: '', turnstile_api_index: 0, version: '', last_workers_version: '', last_agent_version: '', verified: false, is_public: true, authorization: false, site_title: '', display_mode: 'bar', theme_options: {} }
+      } : { turnstile_enabled: false, turnstile_login_enabled: false, turnstile_site_key: '', turnstile_api_index: 0, version: '', last_workers_version: '', last_agent_version: '', verified: false, is_public: true, authorization: false, site_title: '', display_mode: 'bar', preferred_theme: 'auto', default_language: 'auto', frontend_ws_timeout_minutes: 0, theme_options: {} }
       if (sharedTurnstileSite) {
         config.turnstile_enabled = true
         config.turnstile_site_key = sharedTurnstileSite.siteKey
@@ -319,12 +349,14 @@ async function initApp() {
       LAST_WORKERS_VERSION.value = config.last_workers_version || ''
       LAST_AGENT_VERSION.value = config.last_agent_version || ''
     } catch (_) {
-      config = { turnstile_enabled: false, turnstile_login_enabled: false, turnstile_site_key: '', turnstile_api_index: 0, version: '', last_workers_version: '', last_agent_version: '', verified: false, is_public: true, authorization: false, site_title: '', display_mode: 'bar', theme_options: {} }
+      config = { turnstile_enabled: false, turnstile_login_enabled: false, turnstile_site_key: '', turnstile_api_index: 0, version: '', last_workers_version: '', last_agent_version: '', verified: false, is_public: true, authorization: false, site_title: '', display_mode: 'bar', preferred_theme: 'auto', default_language: 'auto', frontend_ws_timeout_minutes: 0, theme_options: {} }
     }
   } else {
     config = await fetchConfig()
   }
 
+  applyDefaultTheme(config?.preferred_theme)
+  applyDefaultLanguage(config?.default_language)
   applyStartupThemeOptions(config)
 
   // 仅全局模式需要在启动时验证 Turnstile；登录模式在 Admin 页面的登录表单中验证

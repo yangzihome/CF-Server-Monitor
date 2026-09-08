@@ -16,21 +16,22 @@
         </div>
 
         <div class="form-group flex-1">
-          <label class="form-label">{{ trans.ghProxy }}</label>
+          <label class="form-label">
+            {{ trans.ghProxy }}
+            <HelpTooltip :text="trans.ghProxyTip" />
+          </label>
+          <select v-model="selectedGhProxy" class="form-select">
+            <option v-for="option in ghProxyOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            <option :value="CUSTOM_GH_PROXY_VALUE">{{ trans.custom || 'Custom' }}</option>
+          </select>
           <input
+            v-if="showCustomGhProxy"
             type="text"
-            list="ghProxyList"
             :value="installGhProxy"
-            class="form-input"
+            class="form-input mt-2"
             :placeholder="trans.ghProxyPlaceholder"
             @input="$emit('update:install-gh-proxy', $event.target.value)"
           >
-          <datalist id="ghProxyList">
-            <option value="https://ghfast.top/">https://ghfast.top/</option>
-            <option value="https://ghproxy.net/">https://ghproxy.net/</option>
-            <option value="https://gh.llkk.cc/">https://gh.llkk.cc/</option>
-            <option value="https://gh-proxy.com/">https://gh-proxy.com/</option>
-          </datalist>
         </div>
       </div>
 
@@ -43,9 +44,17 @@
           <span class="config-label">{{ trans.reportInterval }}</span>
           <span class="config-value">{{ formatWithUnit(reportInterval, 's') }}</span>
         </div>
+        <div v-if="connectionMode === 'auto'" class="config-row">
+          <span class="config-label">{{ trans.wssReportInterval }}</span>
+          <span class="config-value">{{ formatWithUnit(wssReportInterval, 's') }}</span>
+        </div>
         <div class="config-row">
           <span class="config-label">{{ trans.connectionMode }}</span>
           <span class="config-value">{{ connectionMode === 'http' ? trans.connectionModeHttp : trans.connectionModeAuto }}</span>
+        </div>
+        <div class="config-row">
+          <span class="config-label">{{ trans.pingMode }}</span>
+          <span class="config-value">{{ effectivePingMode === 'icmp' ? 'ICMP (root)' : 'TCP' }}</span>
         </div>
         <div class="config-row">
           <span class="config-label">{{ trans.trafficResetDay }}</span>
@@ -74,6 +83,9 @@
         <div class="config-row">
           <span class="config-label">{{ trans.customBd }}</span>
           <span class="config-value">{{ isBlank(customBd) ? '-' : customBd }}</span>
+        </div>
+        <div v-for="(node, index) in [node1, node2, node3, node4]" :key="index" class="config-row">
+          <span class="config-label">Node {{ index + 1 }}</span><span class="config-value">{{ isBlank(node) ? '-' : node }}</span>
         </div>
         <div class="config-row">
           <span class="config-label">{{ trans.networkInterface }}</span>
@@ -108,7 +120,10 @@
 </template>
 
 <script setup>
-defineProps({
+import { computed, ref, watch } from 'vue'
+import HelpTooltip from '../../../components/HelpTooltip.vue'
+
+const props = defineProps({
   trans: { type: Object, required: true },
   show: { type: Boolean, default: false },
   currentServerName: { type: String, default: '' },
@@ -116,11 +131,14 @@ defineProps({
   installGhProxy: { type: String, default: '' },
   collectInterval: { type: [Number, String], default: 0 },
   reportInterval: { type: [Number, String], default: 60 },
+  wssReportInterval: { type: [Number, String], default: 2 },
   connectionMode: { type: String, default: 'auto' },
+  pingMode: { type: String, default: 'tcp' },
   customCt: { type: String, default: '' },
   customCu: { type: String, default: '' },
   customCm: { type: String, default: '' },
   customBd: { type: String, default: '' },
+  node1: { type: String, default: '' }, node2: { type: String, default: '' }, node3: { type: String, default: '' }, node4: { type: String, default: '' },
   networkInterface: { type: String, default: '' },
   resetDay: { type: [Number, String], default: 1 },
   rxCorrection: { type: [Number, String], default: '' },
@@ -130,13 +148,58 @@ defineProps({
   copiedCmd: { type: Boolean, default: false }
 })
 
-defineEmits([
+const emit = defineEmits([
   'close',
   'copy-cmd',
   'open-edit-from-copy',
   'update:target-os',
   'update:install-gh-proxy'
 ])
+
+const CUSTOM_GH_PROXY_VALUE = '__custom__'
+const ghProxyOptions = [
+  { value: '', label: props.trans.ghProxyPlaceholder || 'Direct' },
+  { value: 'https://ghfast.top/', label: 'https://ghfast.top/' },
+  { value: 'https://ghproxy.net/', label: 'https://ghproxy.net/' },
+  { value: 'https://gh.llkk.cc/', label: 'https://gh.llkk.cc/' },
+  { value: 'https://gh-proxy.com/', label: 'https://gh-proxy.com/' }
+]
+
+const manualCustomGhProxy = ref(false)
+const isKnownGhProxy = (value) => ghProxyOptions.some(option => option.value === String(value || '').trim())
+
+const selectedGhProxy = computed({
+  get: () => {
+    const currentProxy = String(props.installGhProxy || '').trim()
+    if (manualCustomGhProxy.value || (!isKnownGhProxy(currentProxy) && currentProxy)) {
+      return CUSTOM_GH_PROXY_VALUE
+    }
+    return currentProxy
+  },
+  set: (value) => {
+    if (value === CUSTOM_GH_PROXY_VALUE) {
+      manualCustomGhProxy.value = true
+      if (isKnownGhProxy(props.installGhProxy)) {
+        emit('update:install-gh-proxy', '')
+      }
+      return
+    }
+    manualCustomGhProxy.value = false
+    emit('update:install-gh-proxy', value)
+  }
+})
+
+const showCustomGhProxy = computed(() => selectedGhProxy.value === CUSTOM_GH_PROXY_VALUE)
+const effectivePingMode = computed(() => props.pingMode === 'icmp' ? 'icmp' : 'tcp')
+
+watch(
+  () => props.show,
+  (show) => {
+    if (show && isKnownGhProxy(props.installGhProxy)) {
+      manualCustomGhProxy.value = false
+    }
+  }
+)
 
 const isBlank = (value) => value === '' || value === null || value === undefined
 const formatWithUnit = (value, unit) => (isBlank(value) ? '-' : `${value} ${unit}`)

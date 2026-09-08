@@ -51,19 +51,67 @@
           </div>
         </div>
       </div>
-      <div class="filter-bar" id="ajax-filters">
-        <span
-          v-for="(count, code) in filterOptions"
-          :key="code"
-          class="filter-tag"
-          :class="{ active: currentFilter === code, 'filter-tag-unknown': code === 'unknown' }"
-          :data-filter="code"
-          @click="setFilter(code)"
-        >
-          <span v-if="code === 'unknown'" class="filter-tag-icon">🏳️</span>
-          <img v-else-if="code !== 'all'" :src="getPublicAssetUrl('flags/' + getFlagRegionCode(code) + '.svg')" :alt="code">
-          {{ code === 'all' ? '[' + trans.all + ']' : code === 'unknown' ? 'UNKNOWN' : code.toUpperCase() }} {{ count }}
-        </span>
+      <div class="filter-wrap" ref="filterWrap">
+        <div class="filter-bar" id="ajax-filters">
+          <button
+            v-for="item in visibleFilterOptions"
+            :key="item.code"
+            type="button"
+            class="filter-tag"
+            :class="{ active: currentFilter === item.code, 'filter-tag-unknown': item.code === 'unknown' }"
+            :data-filter="item.code"
+            @click="setFilter(item.code)"
+          >
+            <span v-if="item.code === 'unknown'" class="filter-tag-icon">🏳️</span>
+            <img v-else-if="item.flagCode" :src="getPublicAssetUrl('flags/' + item.flagCode + '.svg')" :alt="item.code">
+            <span class="filter-tag-label">{{ item.label }}</span>
+            <span class="filter-tag-count">{{ item.count }}</span>
+          </button>
+          <div v-if="overflowFilterOptions.length > 0" class="filter-more" :class="{ active: isOverflowFilterActive }">
+            <button
+              type="button"
+              class="filter-tag filter-more-btn"
+              :class="{ active: isOverflowFilterActive }"
+              @click.stop="toggleFilterMore"
+            >
+              <span class="filter-tag-label">{{ filterMoreLabel }}</span>
+              <span class="filter-tag-count">{{ overflowFilterOptions.length }}</span>
+            </button>
+            <div v-if="filterMoreOpen" class="filter-more-menu">
+              <button
+                v-for="item in overflowFilterOptions"
+                :key="item.code"
+                type="button"
+                class="filter-tag filter-more-item"
+                :class="{ active: currentFilter === item.code, 'filter-tag-unknown': item.code === 'unknown' }"
+                :data-filter="item.code"
+                @click="setFilter(item.code)"
+              >
+                <span v-if="item.code === 'unknown'" class="filter-tag-icon">🏳️</span>
+                <img v-else-if="item.flagCode" :src="getPublicAssetUrl('flags/' + item.flagCode + '.svg')" :alt="item.code">
+                <span class="filter-tag-label">{{ item.label }}</span>
+                <span class="filter-tag-count">{{ item.count }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div ref="filterMeasure" class="filter-measure" aria-hidden="true">
+          <button
+            v-for="item in filterOptionEntries"
+            :key="item.code"
+            type="button"
+            class="filter-tag filter-measure-tag"
+          >
+            <span v-if="item.code === 'unknown'" class="filter-tag-icon">🏳️</span>
+            <img v-else-if="item.flagCode" :src="getPublicAssetUrl('flags/' + item.flagCode + '.svg')" :alt="item.code">
+            <span class="filter-tag-label">{{ item.label }}</span>
+            <span class="filter-tag-count">{{ item.count }}</span>
+          </button>
+          <button ref="filterMoreMeasure" type="button" class="filter-tag filter-more-btn">
+            <span class="filter-tag-label">{{ filterMoreLabel }}</span>
+            <span class="filter-tag-count">{{ filterOptionEntries.length }}</span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -72,7 +120,7 @@
         <img class="mikus-stats-mascot-img" :src="mikusAsset('QWQ.webp')" alt="">
       </div>
       <div class="stat-item">
-        <div class="stat-label">{{ trans.totalServers }}</div>
+        <div class="stat-label">{{ trans.servers }}</div>
         <div class="stat-main-value stat-main-value-sm stat-sub-info">
           <span class="stat-online-color">{{ trans.online }}:{{ stats.online }}</span> |
           <span class="stat-offline-color">{{ trans.offline }}:{{ stats.offline }}</span>
@@ -89,9 +137,8 @@
           <span class="stat-net-up-color">↑ {{ formatBytes(stats.globalSpeedOut) }}/s</span>
         </div>
       </div>
-      <button
+      <div
         v-if="sysConfig.show_price"
-        type="button"
         class="stat-item stat-action-item"
         @click="financeModalOpen = true"
       >
@@ -100,10 +147,10 @@
           {{ formattedRemainingValue.symbol }}{{ formattedRemainingValue.value }}
           <span class="finance-currency-code">{{ formattedRemainingValue.currency }}</span>
         </div>
-      </button>
+      </div>
     </div>
 
-    <div id="view-card" class="view-panel" :class="{ active: isCardView }">
+    <div id="view-card" class="view-panel" :class="{ active: isCardView, 'high-density': filteredServers.length > 12 }">
       <div v-if="groupedServers.length === 0" class="empty-state">
         [!] {{ trans.noServer }}，请在 <a href="/admin#admin" class="admin-link-color">{{ trans.backToAdmin }}</a> 中添加
       </div>
@@ -139,6 +186,7 @@
               <th>{{ trans.ram }}</th>
               <th>{{ trans.disk }}</th>
               <th>{{ trans.use }}</th>
+              <th class="table-col-conn">TCP/UDP</th>
               <th width="95">{{ trans.dl }}</th>
               <th width="95">{{ trans.ul }}</th>
               <th width="70">{{ trans.update }}</th>
@@ -146,13 +194,13 @@
           </thead>
           <tbody>
             <tr v-if="isLoading">
-              <td class="table-empty-state">
+              <td class="table-empty-state" colspan="12">
                 <div class="loading-spinner-small"></div>
                 <span>$ {{ trans.loading }}</span>
               </td>
             </tr>
             <tr v-else-if="filteredServers.length === 0">
-              <td class="table-empty-state">[*] {{ trans.noData }}</td>
+              <td class="table-empty-state" colspan="12">[*] {{ trans.noData }}</td>
             </tr>
             <tr 
               v-for="server in filteredServers" 
@@ -164,22 +212,25 @@
               <td class="table-center-cell">
                 <div class="status-indicator table-status-indicator-inline" :style="{ background: getStatusColor(server) }"></div>
               </td>
-              <td><b>{{ server.name }}</b></td>
+              <td><b class="table-server-name">{{ server.name }}</b></td>
               <td>
                 <span v-if="server.region && server.region !== 'xx'" class="country-os-icons">
                   <img :src="getPublicAssetUrl('flags/' + getFlagRegionCode(server.region) + '.svg')" :alt="server.region" class="flag-img">
-                  <OsIcon :os="server.os" />
                 </span>
                 <span v-else class="country-os-icons">
                   <span class="flag-fallback">🏳️</span>
-                  <OsIcon :os="server.os" />
                 </span>
                 {{ (server.region || 'XX').toUpperCase() }}
               </td>
-              <td><span class="os-label">{{ server.os || 'N/A' }} / {{ server.arch || 'N/A' }} </span></td>
+              <td>
+                <span class="table-system-info">
+                  <OsIcon :os="server.os" />
+                  <span class="os-label">{{ formatSystemOs(server.os) }} / {{ server.arch || 'N/A' }} </span>
+                </span>
+              </td>
               <td>
                 <div class="table-stat">
-                  <div class="stat-bar-container stat-bar-small">
+                  <div class="stat-bar-container stat-bar-small table-usage-bar">
                   <div class="stat-bar-fill" :style="{ width: (parseFloat(server.cpu) || 0) + '%', background: getUsageColor(parseFloat(server.cpu) || 0) }"></div>
                 </div>
                   <span>{{ (parseFloat(server.cpu) || 0).toFixed(1) }}%</span>
@@ -187,7 +238,7 @@
               </td>
               <td>
                 <div class="table-stat">
-                  <div class="stat-bar-container" style="width:60px;">
+                  <div class="stat-bar-container table-usage-bar">
                     <div class="stat-bar-fill" :style="{ width: (server.ram_total > 0 ? ((server.ram_used / server.ram_total) * 100).toFixed(2) : 0) + '%', background: getUsageColor(server.ram_total > 0 ? ((server.ram_used / server.ram_total) * 100) : 0) }"></div>
                   </div>
                   <span>{{ server.ram_total > 0 ? ((server.ram_used / server.ram_total) * 100).toFixed(2) : '0.00' }}%</span>
@@ -195,7 +246,7 @@
               </td>
               <td>
                 <div class="table-stat">
-                  <div class="stat-bar-container" style="width:60px;">
+                  <div class="stat-bar-container table-usage-bar">
                     <div class="stat-bar-fill" :style="{ width: (server.disk_total > 0 ? ((server.disk_used / server.disk_total) * 100).toFixed(2) : 0) + '%', background: getUsageColor(server.disk_total > 0 ? ((server.disk_used / server.disk_total) * 100) : 0) }"></div>
                   </div>
                   <span>{{ server.disk_total > 0 ? ((server.disk_used / server.disk_total) * 100).toFixed(2) : '0.00' }}%</span>
@@ -203,13 +254,16 @@
               </td>
               <td v-if="sysConfig.show_tf && server.traffic_limit">
                 <div class="table-stat">
-                  <div class="stat-bar-container stat-bar-small">
+                    <div class="stat-bar-container stat-bar-small table-usage-bar">
                     <div class="stat-bar-fill" :style="{ width: Math.min(100, calcTrafficUsagePercent(server)) + '%', background: getUsageColor(calcTrafficUsagePercent(server)) }"></div>
                   </div>
                   <span>{{ calcTrafficUsagePercent(server).toFixed(1) }}%</span>
                 </div>
               </td>
               <td v-else>-</td>
+              <td class="table-conn-cell">
+                <span class="conn-pair">{{ formatConnPair(server) }}</span>
+              </td>
               <td>{{ formatBytes(server.net_in_speed) }}/s</td>
               <td>{{ formatBytes(server.net_out_speed) }}/s</td>
               <td class="update-time label-small">{{ getUpdateTime(server.last_updated) }}</td>
@@ -298,23 +352,31 @@
       </div>
     </div>
 
+    <LiveConnectionTimeoutModal
+      :show="showLiveTimeoutModal"
+      :trans="trans"
+      @close="closeLiveConnection"
+      @continue="continueLiveConnection"
+    />
+
     <Footer />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, inject, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, inject, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import TerminalHeader from '../components/TerminalHeader.vue'
 import ServerBarCard from '../components/ServerBarCard.vue'
 import ServerRingCard from '../components/ServerRingCard.vue'
 import Footer from '../components/Footer.vue'
 import OsIcon from '../components/OsIcon.vue'
-import { fetchConfig, fetchServersAll, fetchServersAllWithProgress, formatBytes, createLiveSocket, getFlagRegionCode, getApiBases, isServerOnline } from '../utils/api.js'
+import LiveConnectionTimeoutModal from '../components/LiveConnectionTimeoutModal.vue'
+import { fetchConfig, fetchServersAll, fetchServersAllWithProgress, formatBytes, createLiveSocket, getFlagRegionCode, getApiBases, isServerOnline, normalizeLiveSocketTimeoutMinutes } from '../utils/api.js'
 import { calcTrafficUsagePercent, getUsageColor } from '../composables/useServerCardData'
 import { getTitle, hasMultipleApiBases, getPublicAssetUrl } from '../utils/config'
 import { currentLang, useTranslation } from '../utils/i18n.js'
-import { TIME, DEFAULT_SITE_TITLE, STORAGE } from '../utils/constants'
+import { TIME, DEFAULT_SITE_TITLE, STORAGE, LATENCY_WINDOW } from '../utils/constants'
 import { normalizeTimestamp as normalizeMetricTimestamp } from '../utils/time.js'
 import { normalizeDashboardView, normalizeDisplayMode, resolveDisplayMode } from '../utils/displayMode.js'
 import { getPlaybackElapsedMs, resolvePlaybackCursor } from '../utils/playback.js'
@@ -340,20 +402,35 @@ const sysConfig = ref({
   show_price: true,
   show_expire: true,
   show_tf: true,
-  show_time: true,
+  show_three_net_details: true,
+  custom_ct_name: appConfig?.custom_ct_name || '电信',
+  custom_cu_name: appConfig?.custom_cu_name || '联通',
+  custom_cm_name: appConfig?.custom_cm_name || '移动',
+  custom_bd_name: appConfig?.custom_bd_name || 'BGP',
+  frontend_ws_timeout_minutes: normalizeLiveSocketTimeoutMinutes(appConfig?.frontend_ws_timeout_minutes),
   display_mode: 'bar',
   site_title: DEFAULT_SITE_TITLE,
-  theme_options: normalizeThemeOptions(appConfig?.theme_options)
+  theme_options: normalizeThemeOptions(appConfig?.theme_options),
+  latency_window: appConfig?.latency_window || {
+    points: LATENCY_WINDOW.POINTS,
+    hours: LATENCY_WINDOW.HOURS
+  }
 })
 const regionStats = ref({})
 const currentView = ref('bar')
 const currentFilter = ref('all')
+const filterWrap = ref(null)
+const filterMeasure = ref(null)
+const filterMoreMeasure = ref(null)
+const filterVisibleCount = ref(Number.POSITIVE_INFINITY)
+const filterMoreOpen = ref(false)
 const mapInitialized = ref(false)
 const liveConnected = ref(false)
 const isLoading = ref(true)
 const sitesRemaining = ref(0)
 const hasCorsError = ref(null)
 const financeModalOpen = ref(false)
+const showLiveTimeoutModal = ref(false)
 const financeCurrency = ref('CNY')
 const exchangeRates = ref(DEFAULT_EXCHANGE_RATES)
 const exchangeRateSource = ref('default')
@@ -442,10 +519,118 @@ const filterOptions = computed(() => {
     if (lower === 'xx') continue
     normalizedStats[lower] = regionStats.value[code]
   }
-  const opts = { all: stats.value.total, ...normalizedStats }
+  const sortedRegionStats = Object.fromEntries(
+    Object.entries(normalizedStats).sort(([codeA, countA], [codeB, countB]) => {
+      if (countB !== countA) return countB - countA
+      return codeA.localeCompare(codeB)
+    })
+  )
+  const opts = { ...sortedRegionStats }
   if (unknownStats.value > 0) opts.unknown = unknownStats.value
   return opts
 })
+
+const getFilterLabel = (code) => {
+  if (code === 'unknown') return '?'
+  return code.toUpperCase()
+}
+
+const filterOptionEntries = computed(() => Object.entries(filterOptions.value).map(([code, count]) => ({
+  code,
+  count,
+  label: getFilterLabel(code),
+  flagCode: code !== 'all' && code !== 'unknown' ? getFlagRegionCode(code) : ''
+})))
+
+const filterMoreLabel = computed(() => currentLang.value === 'zh' ? '更多' : 'MORE')
+const visibleFilterOptions = computed(() => filterOptionEntries.value.slice(0, filterVisibleCount.value))
+const overflowFilterOptions = computed(() => filterOptionEntries.value.slice(filterVisibleCount.value))
+const isOverflowFilterActive = computed(() => overflowFilterOptions.value.some(item => item.code === currentFilter.value))
+
+let filterResizeObserver = null
+let filterMeasureTimer = null
+
+const getFilterMaxRows = () => window.matchMedia('(max-width: 768px)').matches ? 2 : 1
+
+const getWrappedRowCount = (widths, wrapWidth, gap) => {
+  if (widths.length === 0) return 0
+
+  let rows = 1
+  let rowWidth = 0
+
+  for (const width of widths) {
+    const nextWidth = rowWidth > 0 ? rowWidth + gap + width : width
+    if (nextWidth <= wrapWidth || rowWidth === 0) {
+      rowWidth = nextWidth
+    } else {
+      rows += 1
+      rowWidth = width
+    }
+  }
+
+  return rows
+}
+
+const updateFilterVisibleCount = () => {
+  const entries = filterOptionEntries.value
+  const wrapEl = filterWrap.value
+  const measureEl = filterMeasure.value
+  if (!wrapEl || !measureEl || entries.length === 0) {
+    filterVisibleCount.value = entries.length
+    return
+  }
+
+  const wrapWidth = wrapEl.clientWidth
+  const itemEls = Array.from(measureEl.querySelectorAll('.filter-measure-tag'))
+  if (wrapWidth <= 0 || itemEls.length === 0) return
+
+  const gap = Number.parseFloat(window.getComputedStyle(measureEl).columnGap) || 0
+  const itemWidths = itemEls.map(el => el.offsetWidth)
+  const maxRows = getFilterMaxRows()
+
+  if (getWrappedRowCount(itemWidths, wrapWidth, gap) <= maxRows) {
+    filterVisibleCount.value = entries.length
+    filterMoreOpen.value = false
+    return
+  }
+
+  const moreWidth = filterMoreMeasure.value?.offsetWidth || 70
+  let visibleCount = 0
+
+  for (let index = 0; index < itemWidths.length; index += 1) {
+    const nextVisibleCount = index + 1
+    const testWidths = [...itemWidths.slice(0, nextVisibleCount), moreWidth]
+    if (getWrappedRowCount(testWidths, wrapWidth, gap) > maxRows) break
+    visibleCount = nextVisibleCount
+  }
+
+  filterVisibleCount.value = Math.max(1, Math.min(visibleCount, entries.length - 1))
+}
+
+const scheduleFilterMeasurement = () => {
+  if (filterMeasureTimer) clearTimeout(filterMeasureTimer)
+  filterMeasureTimer = setTimeout(async () => {
+    filterMeasureTimer = null
+    await nextTick()
+    updateFilterVisibleCount()
+  }, 0)
+}
+
+const toggleFilterMore = () => {
+  filterMoreOpen.value = !filterMoreOpen.value
+}
+
+const closeFilterMoreOnOutsideClick = (event) => {
+  if (!filterWrap.value?.contains(event.target)) filterMoreOpen.value = false
+}
+
+watch(
+  () => filterOptionEntries.value.map(item => `${item.code}:${item.count}:${item.label}`).join('|'),
+  scheduleFilterMeasurement,
+  { flush: 'post' }
+)
+
+watch(filterMoreLabel, scheduleFilterMeasurement, { flush: 'post' })
 
 const filteredServers = computed(() => {
   if (currentFilter.value === 'all') return servers.value
@@ -483,11 +668,31 @@ const switchView = (viewName) => {
 }
 
 const setFilter = (code) => {
-  currentFilter.value = code.toLowerCase()
+  const nextFilter = code.toLowerCase()
+  currentFilter.value = currentFilter.value === nextFilter ? 'all' : nextFilter
+  filterMoreOpen.value = false
 }
 
 const getStatusColor = (server) => {
   return isServerOnline(server) ? 'var(--accent-green)' : 'var(--accent-red)'
+}
+
+const formatConnCount = (value) => {
+  const number = Number.parseInt(value, 10)
+  if (!Number.isFinite(number) || number < 0) return '0'
+  return number.toLocaleString('en-US')
+}
+
+const formatConnPair = (server) => `${formatConnCount(server.tcp_conn)} / ${formatConnCount(server.udp_conn)}`
+
+const formatSystemOs = (value) => {
+  const raw = String(value || '').trim()
+  if (!raw) return 'N/A'
+  return raw
+    .replace(/\s+gnu\/linux(?=\s|$)/gi, '')
+    .replace(/\s+linux(?=\s|$)/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim() || raw
 }
 
 const getUpdateTime = (lastUpdated) => {
@@ -763,7 +968,9 @@ const loadDashboardConfig = async () => {
       ...sysConfig.value,
       site_title: hasMultipleApiBases() && localTitle ? localTitle : (siteTitle || sysConfig.value.site_title),
       display_mode: resolveDisplayMode(config),
-      theme_options: normalizeThemeOptions(config?.theme_options)
+      frontend_ws_timeout_minutes: normalizeLiveSocketTimeoutMinutes(config?.frontend_ws_timeout_minutes),
+      theme_options: normalizeThemeOptions(config?.theme_options),
+      latency_window: config?.latency_window || sysConfig.value.latency_window
     }
   } catch (e) {
     console.log('[INFO] Dashboard config pending...', e)
@@ -792,10 +999,16 @@ const refreshData = async () => {
           show_price: data.sysConfig?.show_price ?? true,
           show_expire: data.sysConfig?.show_expire ?? true,
           show_tf: data.sysConfig?.show_tf ?? true,
-          show_time: data.sysConfig?.show_time ?? true,
+          show_three_net_details: data.sysConfig?.show_three_net_details ?? false,
+          custom_ct_name: data.sysConfig?.custom_ct_name || sysConfig.value.custom_ct_name,
+          custom_cu_name: data.sysConfig?.custom_cu_name || sysConfig.value.custom_cu_name,
+          custom_cm_name: data.sysConfig?.custom_cm_name || sysConfig.value.custom_cm_name,
+          custom_bd_name: data.sysConfig?.custom_bd_name || sysConfig.value.custom_bd_name,
+          frontend_ws_timeout_minutes: sysConfig.value.frontend_ws_timeout_minutes,
           display_mode: normalizeDisplayMode(data.sysConfig?.display_mode),
           site_title: sysConfig.value.site_title || DEFAULT_SITE_TITLE,
-          theme_options: sysConfig.value.theme_options
+          theme_options: sysConfig.value.theme_options,
+          latency_window: data.sysConfig?.latency_window || sysConfig.value.latency_window
         }
 
         if (data.corsErrorSites?.length && !hasCorsError.value) hasCorsError.value = [...data.corsErrorSites]
@@ -829,10 +1042,16 @@ const refreshData = async () => {
       show_price: data.sysConfig?.show_price ?? true,
       show_expire: data.sysConfig?.show_expire ?? true,
       show_tf: data.sysConfig?.show_tf ?? true,
-      show_time: data.sysConfig?.show_time ?? true,
+      show_three_net_details: data.sysConfig?.show_three_net_details ?? false,
+      custom_ct_name: data.sysConfig?.custom_ct_name || sysConfig.value.custom_ct_name,
+      custom_cu_name: data.sysConfig?.custom_cu_name || sysConfig.value.custom_cu_name,
+      custom_cm_name: data.sysConfig?.custom_cm_name || sysConfig.value.custom_cm_name,
+      custom_bd_name: data.sysConfig?.custom_bd_name || sysConfig.value.custom_bd_name,
+      frontend_ws_timeout_minutes: sysConfig.value.frontend_ws_timeout_minutes,
       display_mode: normalizeDisplayMode(data.sysConfig?.display_mode),
       site_title: sysConfig.value.site_title || DEFAULT_SITE_TITLE,
-      theme_options: sysConfig.value.theme_options
+      theme_options: sysConfig.value.theme_options,
+      latency_window: data.sysConfig?.latency_window || sysConfig.value.latency_window
     }
 
     drawMarkers()
@@ -848,10 +1067,26 @@ const refreshData = async () => {
 //   - 订阅 "all"，收到任何服务器的更新都会合并对应 server 的指标
 // -------------------------------------------------------------------------
 let liveSockets = []
+let liveConnectionClosedByUser = false
 let themeObserver = null
 let timeUpdateInterval = null
 
+const stopLiveSockets = () => {
+  if (liveSockets.length === 0) return
+  liveSockets.forEach(socket => {
+    if (socket) socket.close()
+  })
+  liveSockets = []
+  liveConnected.value = false
+}
+
 const startLiveSocket = () => {
+  if (typeof document !== 'undefined' && document.hidden) {
+    stopLiveSockets()
+    return
+  }
+
+  stopLiveSockets()
   const bases = getApiBases()
 
   // 按 source 分组，每个 apiBase 只传自己的 server IDs
@@ -869,7 +1104,11 @@ const startLiveSocket = () => {
     const allIds = servers.value.map(s => s.id).filter(Boolean)
     liveSockets = [createLiveSocket('all', {
       replay: false,
+      timeoutMinutes: sysConfig.value.frontend_ws_timeout_minutes,
       onMessage: queueLiveMessage,
+      onTimeout: () => {
+        showLiveTimeoutModal.value = true
+      },
       onStatus: ({ connected }) => {
         liveConnected.value = !!connected
       }
@@ -883,13 +1122,47 @@ const startLiveSocket = () => {
     if (!ids || ids.length === 0) return null
     return createLiveSocket('all', {
       replay: false,
+      timeoutMinutes: sysConfig.value.frontend_ws_timeout_minutes,
       onMessage: queueLiveMessage,
+      onTimeout: () => {
+        showLiveTimeoutModal.value = true
+      },
       onStatus: ({ connected }) => {
         const anyConnected = liveSockets.some(s => s && s.isConnected)
         liveConnected.value = anyConnected
       }
     }, index, ids)
   }).filter(Boolean)
+}
+
+const closeLiveConnection = () => {
+  showLiveTimeoutModal.value = false
+  liveConnectionClosedByUser = true
+  stopLiveSockets()
+}
+
+const continueLiveConnection = () => {
+  showLiveTimeoutModal.value = false
+  liveConnectionClosedByUser = false
+  if (liveSockets.length === 0) {
+    startLiveSocket()
+    return
+  }
+  liveSockets.forEach(socket => socket?.reconnect())
+}
+
+const handleVisibility = () => {
+  if (document.hidden) {
+    stopLiveSockets()
+  } else if (showLiveTimeoutModal.value || liveConnectionClosedByUser) {
+    return
+  } else if (liveSockets.length === 0) {
+    startLiveSocket()
+  } else {
+    liveSockets.forEach(socket => {
+      if (socket) socket.reconnect()
+    })
+  }
 }
 
 const initMap = () => {
@@ -1035,7 +1308,17 @@ onMounted(async () => {
     localStorage.setItem(STORAGE.VIEW_PREFERENCE, savedView)
   }
   await refreshData()
+  await nextTick()
+  scheduleFilterMeasurement()
+  if (window.ResizeObserver && filterWrap.value) {
+    filterResizeObserver = new ResizeObserver(scheduleFilterMeasurement)
+    filterResizeObserver.observe(filterWrap.value)
+  } else {
+    window.addEventListener('resize', scheduleFilterMeasurement)
+  }
+  document.addEventListener('click', closeFilterMoreOnOutsideClick)
   startLiveSocket()
+  document.addEventListener('visibilitychange', handleVisibility)
 
   // 每秒更新 now 变量，使相对时间实时刷新
   runDashboardTick()
@@ -1057,12 +1340,13 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  document.removeEventListener('visibilitychange', handleVisibility)
+  document.removeEventListener('click', closeFilterMoreOnOutsideClick)
+  window.removeEventListener('resize', scheduleFilterMeasurement)
+  if (filterMeasureTimer) clearTimeout(filterMeasureTimer)
+  if (filterResizeObserver) filterResizeObserver.disconnect()
   if (timeUpdateInterval) clearInterval(timeUpdateInterval)
-  if (liveSockets.length > 0) {
-    liveSockets.forEach(socket => {
-      if (socket) socket.close()
-    })
-  }
+  stopLiveSockets()
   if (themeObserver) themeObserver.disconnect()
 })
 </script>

@@ -5,7 +5,7 @@
 >
 > **Base URL**：`https://<your-worker-domain>`（部署后由 Cloudflare Workers 提供）
 >
-> **最后核对源码日期**：`2026-07-26`
+> **最后核对源码日期**：`2026-09-07`
 >
 > **修订标记约定**：自 `2026-07-26` 起，已过期但有迁移参考价值的说明使用删除线保留，紧随其后给出当前实现。
 >
@@ -30,6 +30,7 @@
   - [1.1](#11-post-update---指标上报agent-入口) [`POST /update`](#11-post-update---指标上报agent-入口) [- 指标上报（Agent 入口）](#11-post-update---指标上报agent-入口)
 - [2. 公开 API（前端/管理端共用）](#2-公开-api前端管理端共用)
   - [2.1](#21-get-apiconfig---获取站点配置) [`GET /api/config`](#21-get-apiconfig---获取站点配置) [- 获取站点配置](#21-get-apiconfig---获取站点配置)
+  - [2.1.1](#211-post-apitheme_options---保存第三方主题配置) [`POST /api/theme_options`](#211-post-apitheme_options---保存第三方主题配置) [- 保存第三方主题配置](#211-post-apitheme_options---保存第三方主题配置)
   - [2.2](#22-get-apiservers---获取服务器列表首页) [`GET /api/servers`](#22-get-apiservers---获取服务器列表首页) [- 获取服务器列表（首页）](#22-get-apiservers---获取服务器列表首页)
   - [2.3](#23-get-apiserver---获取单台服务器详情) [`GET /api/server`](#23-get-apiserver---获取单台服务器详情) [- 获取单台服务器详情](#23-get-apiserver---获取单台服务器详情)
   - [2.4](#24-get-apihistoryall---获取历史指标) [`GET /api/history/all`](#24-get-apihistoryall---获取历史指标) [- 获取历史指标](#24-get-apihistoryall---获取历史指标)
@@ -45,6 +46,7 @@
   - [3.6](#36-action-save_settings---保存设置) [`action: save_settings`](#36-action-save_settings---保存设置) [- 保存设置](#36-action-save_settings---保存设置)
   - [3.6.1](#361-action-start_theme_preview---生成主题预览授权) [`action: start_theme_preview`](#361-action-start_theme_preview---生成主题预览授权) [- 生成主题预览授权](#361-action-start_theme_preview---生成主题预览授权)
   - [3.6.2](#362-action-clear_theme_preview_auth---清除主题预览授权) [`action: clear_theme_preview_auth`](#362-action-clear_theme_preview_auth---清除主题预览授权) [- 清除主题预览授权](#362-action-clear_theme_preview_auth---清除主题预览授权)
+  - [3.6.3](#363-action-save_theme_options---保存第三方主题配置) [`action: save_theme_options`](#363-action-save_theme_options---保存第三方主题配置) [- 保存第三方主题配置](#363-action-save_theme_options---保存第三方主题配置)
   - [3.7](#37-action-add---新增服务器) [`action: add`](#37-action-add---新增服务器) [- 新增服务器](#37-action-add---新增服务器)
   - [3.8](#38-action-edit---修改服务器信息) [`action: edit`](#38-action-edit---修改服务器信息) [- 修改服务器信息](#38-action-edit---修改服务器信息)
   - [3.9](#39-action-delete---删除服务器) [`action: delete`](#39-action-delete---删除服务器) [- 删除服务器](#39-action-delete---删除服务器)
@@ -96,7 +98,7 @@
 
 #### C. JWT Bearer（管理操作 → 后续管理请求）
 
-- **使用位置**：所有非 `login` 的 `POST /admin/api`、`POST /updateDatabase`、`POST /clearHistory`
+- **使用位置**：所有非 `login` 的 `POST /admin/api`、`POST /api/theme_options`、`POST /updateDatabase`、`POST /clearHistory`
 - **方式**：`Authorization: Bearer <token>` Header
 - **Token 签发**：`HS256` JWT，默认有效期 **604800 秒（7 天）**
 - **签名密钥**（优先级）：
@@ -112,6 +114,17 @@
 > **缓存提示**：管理端登录成功后，前端应将 `token` 存于 `localStorage`，并对所有非登录的 `admin/api` 请求自动加上 `Authorization: Bearer <token>` Header。
 >
 > **2026-07-26 修订**：加载站点设置时，后端会在缺少有效 `jwt_secret` 时生成并持久化一个 32 字节随机密钥。因此第 2、3 级回退主要用于数据库加载异常等兜底场景。
+
+#### D. WebSocket JWT（私有站点前端实时推送）
+
+- **使用位置**：`GET /api/ws`，仅当 `site_options.is_public !== 'true'` 时强制校验
+- **认证来源**（任一通过即可）：
+  - `Authorization: Bearer <token>`
+  - `Cookie: cfsm_auth=<token>`
+  - 查询参数：`token=<token>`、`auth_token=<token>` 或 `ws_token=<token>`
+- **失败返回**：`401 { "error": "Unauthorized", "code": 401 }`
+
+浏览器原生 WebSocket 不能自定义 `Authorization` Header。内置前端同域连接走 `cfsm_auth` Cookie，跨域连接才追加 `token=<jwt>` 查询参数。服务端会在转发到 Durable Object 前完成私有站点权限校验；公开站点不要求 JWT。
 
 ### 0.2 Turnstile 人机验证
 
@@ -223,10 +236,10 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
   ```
   Content-Type: application/json
   X-Agent-Version: <探针版本号>
-  X-Agent-Config-Schema: 4
+  X-Agent-Config-Schema: 5
   X-Agent-Config-Md5: <最后成功应用的配置 MD5，首次为 none>
   ```
-  动态配置请求头为新版探针使用的可选字段；当前新 Go Agent 使用 schema `4`。schema `3` 仍按旧兼容配置返回，未携带时保持旧版响应协议。
+  动态配置请求头为新版探针使用的可选字段；当前新 Go Agent 使用 schema `5`。schema `3` / `4` 仍按旧兼容配置返回，未携带时保持旧版响应协议。
 
   WebSocket 握手只能使用 `GET + Upgrade`，这是 WebSocket 协议限制；后端仍通过同一个 `/update` 路径区分 `POST` 与 `wss`。握手成功后服务端先发送：
 
@@ -314,7 +327,8 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
       { "ts": 1737638341000, "metrics": { "...": "metrics at this timestamp" } }
     ],
     "collect_interval": 1,
-    "report_interval": 60
+    "report_interval": 60,
+    "wss_report_interval": 2
   }
   ```
 
@@ -352,14 +366,24 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 | `udp_conn`       | string\|number | -   | 是  | UDP 套接字数                                    |
 | `ip_v4`          | string\|number | -   | 是  | 公网 IPv4 地址；`0` 表示不可达；兼容旧探针 `1` 表示可达但未上报地址 |
 | `ip_v6`          | string\|number | -   | 是  | 公网 IPv6 地址；`0` 表示不可达；兼容旧探针 `1` 表示可达但未上报地址 |
-| `ping_ct`        | string\|number\|false\|null | ms  | 否  | 电信节点延时；空值表示未取到，`false` / `"false"` 表示禁用 |
-| `ping_cu`        | string\|number\|false\|null | ms  | 否  | 联通节点延时                                      |
-| `ping_cm`        | string\|number\|false\|null | ms  | 否  | 移动节点延时                                      |
-| `ping_bd`        | string\|number\|false\|null | ms  | 否  | BGP 节点延时                                    |
-| `loss_ct`        | string\|number\|false\|null | %   | 否  | 电信丢包率                                       |
-| `loss_cu`        | string\|number\|false\|null | %   | 否  | 联通丢包率                                       |
-| `loss_cm`        | string\|number\|false\|null | %   | 否  | 移动丢包率                                       |
-| `loss_bd`        | string\|number\|false\|null | %   | 否  | BGP 丢包率                                     |
+| `ping_ct`        | string\|number\|false\|null | ms  | 否  | 电信节点延时(ms)：`false` / `"false"` 表示未配置/未上报/未取样（前端不显示）；`null` 表示该轮探测全部超时/未取到有效 RTT（前端显示 Timeout）；正数才是有效 RTT |
+| `ping_cu`        | string\|number\|false\|null | ms  | 否  | 联通节点延时，语义同 `ping_ct`                   |
+| `ping_cm`        | string\|number\|false\|null | ms  | 否  | 移动节点延时，语义同 `ping_ct`                   |
+| `ping_bd`        | string\|number\|false\|null | ms  | 否  | BGP 节点延时，语义同 `ping_ct`                  |
+| `ping_node_1`    | string\|number\|false\|null | ms  | 否  | 自定义节点 1 延时，语义同 `ping_ct`              |
+| `ping_node_2`    | string\|number\|false\|null | ms  | 否  | 自定义节点 2 延时，语义同 `ping_ct`              |
+| `ping_node_3`    | string\|number\|false\|null | ms  | 否  | 自定义节点 3 延时，语义同 `ping_ct`              |
+| `ping_node_4`    | string\|number\|false\|null | ms  | 否  | 自定义节点 4 延时，语义同 `ping_ct`              |
+| `loss_ct`        | string\|number\|false|null | %   | 否  | 电信丢包率(%)：`false` / `"false"` 表示未配置/未上报/未取样；`100` 与对应 `ping_*` 的 `null` 同时出现表示该轮全超时；`0` 是有效值 |
+| `loss_cu`        | string\|number\|false|null | %   | 否  | 联通丢包率，语义同 `loss_ct`                    |
+| `loss_cm`        | string\|number\|false|null | %   | 否  | 移动丢包率，语义同 `loss_ct`                    |
+| `loss_bd`        | string\|number\|false|null | %   | 否  | BGP 丢包率，语义同 `loss_ct`                   |
+| `loss_node_1`    | string\|number\|false|null | %   | 否  | 自定义节点 1 丢包率，语义同 `loss_ct`           |
+| `loss_node_2`    | string\|number\|false|null | %   | 否  | 自定义节点 2 丢包率，语义同 `loss_ct`           |
+| `loss_node_3`    | string\|number\|false|null | %   | 否  | 自定义节点 3 丢包率，语义同 `loss_ct`           |
+| `loss_node_4`    | string\|number\|false|null | %   | 否  | 自定义节点 4 丢包率，语义同 `loss_ct`           |
+
+> **Ping/丢包取值约定（2026-09-07 修订）**：WebSocket 采样不携带探针字段时字段直接缺失（`undefined`）；REST `/api/server`、`/api/history/all` 因历史表列固定，统一把“未配置/未上报/未取样”归为 `false`，前端遇 `false` 或字段缺失均不显示。`null` 只用于表示该轮明确探测超时/未取到有效 RTT，前端按 “Timeout/超时” 展示。
 
 **Response**
 
@@ -372,10 +396,10 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 - 新版探针且配置 MD5 不一致，或仍有待确认流量修正：返回 `200 OK`，响应头携带当前
   `X-Agent-Config-Schema` 与 `X-Agent-Config-Md5`，响应体以固定顺序的完整 QueryParam 配置开头：
   ```text
-  collect_interval=0&report_interval=60&reset_day=1&schema_version=4&custom_ct=gd-ct-dualstack.ip.zstaticcdn.com&custom_cu=gd-cu-dualstack.ip.zstaticcdn.com&custom_cm=gd-cm-dualstack.ip.zstaticcdn.com&custom_bd=ip.zstaticcdn.com&interface=&connection_mode=auto
+  collect_interval=2&report_interval=60&reset_day=1&schema_version=6&custom_ct=gd-ct-dualstack.ip.zstaticcdn.com&custom_cu=gd-cu-dualstack.ip.zstaticcdn.com&custom_cm=gd-cm-dualstack.ip.zstaticcdn.com&custom_bd=ip.zstaticcdn.com&interface=&connection_mode=auto&wss_report_interval=2&ping_mode=tcp
   ```
   （`Content-Type: application/x-www-form-urlencoded; charset=utf-8`）
-- ~~动态配置包含 `traffic_calc_type`、`traffic_limit`、`auto_update` 等全部探针运行参数。~~ **2026-07-26 修订，2026-07-31 更新，2026-08-15 更新**：schema `4` 的 MD5 覆盖规范配置包含 `collect_interval`、`report_interval`、`reset_day`、`schema_version`、`custom_ct`、`custom_cu`、`custom_cm`、`custom_bd`、`interface`、`connection_mode`；schema `3` 兼容响应不包含 `connection_mode`。待应用的 `rx_correction`、`tx_correction` 会追加到响应体，但不参与配置 MD5；启用自动更新且版本不一致时追加 `update=1`。
+- ~~动态配置包含 `traffic_calc_type`、`traffic_limit`、`auto_update` 等全部探针运行参数。~~ **2026-07-26 修订，2026-07-31 更新，2026-08-15 更新，2026-08-18 更新，2026-08-19 更新，2026-08-28 更新**：schema `3` 不包含 `connection_mode`；schema `4` 增加 `connection_mode`，并保持原有序列化与 MD5 计算不变；schema `5` 在 WSS 全局开启且服务器 `connection_mode=auto` 时追加 `wss_report_interval`（`1-5` 秒，默认 `2`），并将 `collect_interval=0` 或大于 WSS 间隔的值规范为 WSS 间隔；schema `6` 追加 `ping_mode`（`tcp|icmp`，默认 `tcp`），参与配置 MD5 并下发给 Agent。待应用的 `rx_correction`、`tx_correction` 会追加到响应体，但不参与配置 MD5；启用自动更新且版本不一致时追加 `update=1`。
 - 探针应用流量修正后，可在下一次 `POST /update` 顶层回传 `rx_correction` / `tx_correction`。值匹配时后端清空待修正字段并直接返回纯文本 `OK`，本次请求不要求 `metrics`。
 - 失败：
   ```json
@@ -394,31 +418,33 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
   ```json
   { "type": "ack", "ts": 1737638343000, "persisted": true, "nextD1WriteAfterMs": 60000, "nextWssReportAfterMs": 60000 }
   ```
-  `persisted` 表示本条消息是否触发 D1 历史写入；`nextD1WriteAfterMs` 是距离下一次允许写入 D1 的最短等待时间。WSS 首条成功指标会立即写入一次 D1，后续按该服务器 `report_interval` 控制写入频率（允许值沿用配置：`30/60/120/180` 秒；异常回退 `60` 秒）。`nextWssReportAfterMs` 是服务端建议的下一次 WSS 上报间隔：有前端实时订阅时约为 `report_interval / 15`；仅资源告警缓存活跃且无前端订阅时至少 `60` 秒；无实时消费者时回退到 `report_interval`，用于降低 idle 状态 DO WebSocket 消息数。
-  新版 WSS Agent 可在握手 URL query 中携带 `config_schema=4` / `config_md5=<md5>`，也兼容握手 Header `X-Agent-Config-Schema: 4` 与 `X-Agent-Config-Md5` 记录当前配置状态；当某次上报消息携带 `config_schema: 4` / `config_md5` 时，ack 会同时返回动态配置协商字段。兼容 schema `3` 的 Agent 仍会收到不含 `connection_mode` 的 schema `3` 配置：
+  `persisted` 表示本条消息是否触发 D1 历史写入；`nextD1WriteAfterMs` 是距离下一次允许写入 D1 的最短等待时间。WSS 首条成功指标会立即写入一次 D1，后续按该服务器 `report_interval` 控制写入频率（允许值沿用配置：`30/60/120/180` 秒；异常回退 `60` 秒）。`nextWssReportAfterMs` 是服务端建议的下一次 WSS 上报间隔：有前端实时订阅时使用服务器 `wss_report_interval`；无前端访问时使用 `report_interval`，但最低为 `60` 秒，不区分资源告警缓存是否活跃。缺失或非法的 WSS 间隔回退为 `2` 秒。
+  新版 WSS Agent 可在握手 URL query 中携带 `config_schema=6` / `config_md5=<md5>`，也兼容握手 Header `X-Agent-Config-Schema: 6` 与 `X-Agent-Config-Md5` 记录当前配置状态；当某次上报消息携带 `config_schema: 6` / `config_md5` 时，ack 会同时返回动态配置协商字段。schema `3` / `4` / `5` Agent 仍会收到各自版本的兼容配置：
   ```json
   {
     "type": "ack",
     "ts": 1737638343000,
     "persisted": false,
     "nextD1WriteAfterMs": 30000,
-    "nextWssReportAfterMs": 3000,
-    "config_schema": 4,
+    "nextWssReportAfterMs": 2000,
+    "config_schema": 6,
     "config_md5": "b4d7c0d...",
     "has_config": true,
-    "body": "collect_interval=0&report_interval=60&reset_day=1&schema_version=4&custom_ct=gd-ct-dualstack.ip.zstaticcdn.com&custom_cu=gd-cu-dualstack.ip.zstaticcdn.com&custom_cm=gd-cm-dualstack.ip.zstaticcdn.com&custom_bd=&interface=&connection_mode=auto",
-    "config_body": "collect_interval=0&report_interval=60&reset_day=1&schema_version=4&custom_ct=gd-ct-dualstack.ip.zstaticcdn.com&custom_cu=gd-cu-dualstack.ip.zstaticcdn.com&custom_cm=gd-cm-dualstack.ip.zstaticcdn.com&custom_bd=&interface=&connection_mode=auto",
+    "body": "collect_interval=2&report_interval=60&reset_day=1&schema_version=6&custom_ct=gd-ct-dualstack.ip.zstaticcdn.com&custom_cu=gd-cu-dualstack.ip.zstaticcdn.com&custom_cm=gd-cm-dualstack.ip.zstaticcdn.com&custom_bd=&interface=&connection_mode=auto&wss_report_interval=2&ping_mode=tcp",
+    "config_body": "collect_interval=2&report_interval=60&reset_day=1&schema_version=6&custom_ct=gd-ct-dualstack.ip.zstaticcdn.com&custom_cu=gd-cu-dualstack.ip.zstaticcdn.com&custom_cm=gd-cm-dualstack.ip.zstaticcdn.com&custom_bd=&interface=&connection_mode=auto&wss_report_interval=2&ping_mode=tcp",
     "payload": {
-      "collect_interval": 0,
+      "collect_interval": 2,
       "report_interval": 60,
       "reset_day": 1,
-      "schema_version": 4,
+      "schema_version": 6,
       "custom_ct": "gd-ct-dualstack.ip.zstaticcdn.com",
       "custom_cu": "gd-cu-dualstack.ip.zstaticcdn.com",
       "custom_cm": "gd-cm-dualstack.ip.zstaticcdn.com",
       "custom_bd": "",
       "interface": "",
       "connection_mode": "auto",
+      "wss_report_interval": 2,
+      "ping_mode": "tcp",
       "config_md5": "b4d7c0d..."
     }
   }
@@ -465,7 +491,7 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 
 ## 2. 公开 API（前端/管理端共用）
 
-> ~~以下接口除 `/api/ws` 外，若 `site_options.is_public !== 'true'` 则必须携带 JWT。~~ **2026-07-26 修订**：`/api/servers`、`/api/server`、`/api/history/all` 在私有站点需要 JWT；`/api/config`、`/api/ws`、`/theme` 无论站点是否公开均可访问。
+> ~~以下接口除 `/api/ws` 外，若 `site_options.is_public !== 'true'` 则必须携带 JWT。~~ **2026-07-26 修订**：`/api/servers`、`/api/server`、`/api/history/all` 在私有站点需要 JWT；`/api/config`、`/api/ws`、`/theme` 无论站点是否公开均可访问。**2026-08-19 修订**：私有站点的 `/api/ws` 也需要通过 WebSocket JWT 认证，公开站点仍可匿名连接。
 > 命中 Turnstile 时需带 `X-Turnstile-Token` 或 `X-Turnstile-Verified`。
 
 ### 2.1 `GET /api/config` - 获取站点配置
@@ -490,15 +516,26 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
   "turnstile_enabled": true,
   "turnstile_login_enabled": true,
   "turnstile_site_key": "1x00000000000000000000AA",
+  "custom_ct_name": "电信",
+  "custom_cu_name": "联通",
+  "custom_cm_name": "移动",
+  "custom_bd_name": "BGP",
   "site_title": "My Server Monitor",
   "display_mode": "bar",
+  "preferred_theme": "auto",
+  "default_language": "auto",
   "verified": false,
   "turnstile_verified": null,
   "theme_options": {
     "a": 1,
     "b": 2
   },
-  "long_history_points": 120
+  "frontend_ws_timeout_minutes": 20,
+  "long_history_points": 120,
+  "latency_window": {
+    "points": 20,
+    "hours": 2
+  }
 }
 ```
 
@@ -510,16 +547,64 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 | `turnstile_enabled`  | boolean      | 站点是否启用人机验证                             |
 | `turnstile_login_enabled` | boolean | 登录是否需要 Turnstile；全局 Turnstile 开启时该值也为 `true` |
 | `turnstile_site_key` | string       | Turnstile 前端公钥；前端拿到后渲染 widget          |
+| `custom_ct_name` / `custom_cu_name` / `custom_cm_name` / `custom_bd_name` | string | Ping 指标显示名称；分别用于 CT、CU、CM、BGP，默认值为电信、联通、移动、BGP |
 | `site_title`         | string       | 站点标题                                         |
 | `display_mode`       | string       | 内置前端显示模式：`bar` / `ring` / `table`        |
+| `preferred_theme`    | string       | 默认外观：`auto` 跟随系统 / `dark` 深色 / `light` 浅色 |
+| `default_language`   | string       | 默认语言：`auto` 按浏览器语言自动选择中文或英文 / `zh` 中文 / `en` 英文 |
 | `verified`           | boolean      | 当前 Turnstile 验证状态；有效的验证凭证或本次成功验证的 Token 均可使其为 `true` |
 | `turnstile_verified` | string\|null | 当次验证成功后回写给客户端的"已验证凭证"，客户端应回存并在 1 小时内复用 |
 | `last_workers_version` | string\|null | **仅登录时出现**；远程最新 Workers 版本，来源为 GitHub `version.json`，后端缓存 5 分钟 |
 | `last_agent_version` | string\|null | **仅登录时出现**；远程最新 Agent 版本，来源为 GitHub `version.json`，后端缓存 5 分钟 |
 | `theme_options`      | object       | 第三方主题自定义配置；未配置时为空对象，匿名请求也会返回 |
+| `frontend_ws_timeout_minutes` | number | 前端实时订阅连接超时分钟数，范围 `0`-`1440`；默认 `0` 表示不超时 |
 | `long_history_points` | number      | 长历史查询返回的采样点数，后台可选 `60`、`120`、`180`、`240` |
+| `latency_window` | object      | `/api/servers` 的 `servers[].ping` / `servers[].loss` 窗口参数；`points` 为最多真实点数，`hours` 为回看小时数 |
 
 > ~~`X-Turnstile-Token` 携带且验证成功时，响应头会同步设置 `X-Turnstile-Verified`。~~ **2026-07-26 修订**：当前前端从响应体的 `turnstile_verified` 保存凭证；响应 Header 尚未实际写入。
+
+***
+
+### 2.1.1 `POST /api/theme_options` - 保存第三方主题配置
+
+**Request**
+
+- Method：`POST`
+- Path：`/api/theme_options`
+- Headers：
+  ```
+  Content-Type: application/json
+  Authorization: Bearer <jwt>
+  X-Turnstile-Token: <token> 或 X-Turnstile-Verified: <encrypted>   # 仅全局 Turnstile 开启时需要
+  ```
+
+```json
+{
+  "theme_options": {
+    "layout": "compact",
+    "accent": "green"
+  }
+}
+```
+
+**行为**：
+
+- `theme_options` 必须是非数组对象；传数组、字符串、`null` 会返回 `400 invalidThemeOptionsFormat`。
+- 只更新 `settings` 表中 `appearance_options.theme_options`，保留 `appearance_options` 内其他字段，不写入或重写 `site_options`。
+- 读取端仍使用 `/api/config` 返回的 `theme_options`。
+
+**Response 200**
+
+```json
+{
+  "success": true,
+  "theme_options": {
+    "layout": "compact",
+    "accent": "green"
+  },
+  "message": "updateSuccess"
+}
+```
 
 ***
 
@@ -571,7 +656,7 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
     "show_price": true,
     "show_expire": true,
     "show_tf": true,
-    "show_time": true,
+    "show_three_net_details": true,
     "display_mode": "bar"
   }
 }
@@ -580,12 +665,12 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 | 字段            | 说明                                                                    |
 | ------------- | --------------------------------------------------------------------- |
 | `servers`     | 已合并最新指标的服务器列表（按 `sort_order ASC`），未登录用户**自动过滤** **`is_hidden = '1'`** |
-| `latestReportUpdates` | 每台服务器最近一次批量上报的采样回放数据，用于新页面连续回放；来自 Worker/DO 内存缓存，缓存约 4 分钟，进程重启或 DO 回收后允许为空。REST 响应中的样本统一为 `{ ts, data }`，`data` 按探针批量采样包透传；内置探针默认只在普通采样点上报 `cpu`、`ram_total`、`ram_used`、`swap_total`、`swap_used`、`net_in_speed`、`net_out_speed` |
+| `latestReportUpdates` | 每台服务器最近一次批量上报的采样回放数据，用于新页面连续回放；来自 Worker/DO 内存状态，保留约 5 分钟，进程重启或 DO 回收后允许为空。REST 响应中的样本统一为 `{ ts, data }`，`data` 按探针批量采样包透传；内置探针默认只在普通采样点上报 `cpu`、`ram_total`、`ram_used`、`swap_total`、`swap_used`、`net_in_speed`、`net_out_speed` |
 | `stats`       | 聚合统计：在线阈值 300 秒（5 分钟无上报视为离线）                                          |
 | `regionStats` | 按 ISO 区域码（大写）统计的服务器数                                                  |
-| `sysConfig`   | 当前站点开关：`show_price`、`show_expire`、`show_tf`、`show_time`、`display_mode`。主题配置请从 `/api/config` 的 `theme_options` 读取。~~旧版示例中的 `site_title` 不在该对象内。~~（2026-07-26 修订） |
+| `sysConfig`   | 当前站点开关：`show_price`、`show_expire`、`show_tf`、`show_three_net_details`、`display_mode`。主题配置请从 `/api/config` 的 `theme_options` 读取。~~旧版示例中的 `site_title` 不在该对象内。~~（2026-07-26 修订） |
 
-> `/api/servers` 的 `latestReportUpdates` 与 `servers[].ping` / `servers[].loss` 读取自 DO 实时状态，并在当前 Worker isolate 内短缓存约 4 分钟。该缓存不跨 isolate 共享，冷启动或缓存过期时会回源 DO。
+> `/api/servers` 的 `latestReportUpdates` 每次请求都会读取 DO 实时状态，并与当前 Worker isolate 内约 5 分钟的最近上报回放合并。`servers[].ping` / `servers[].loss` 只在 `sysConfig.show_three_net_details === true` 时从 D1 最近 2 小时历史抽样返回，最多 20 个真实样本点；主题可从 `/api/config.latency_window` 读取这两个窗口参数。抽样结果在当前 Worker isolate 内缓存约 5 分钟；关闭三网详情时返回空数组且不触发这部分 D1 查询。抽样点保留真实上报时间，不做固定时间戳对齐，也不会用最近点补齐缺口。
 
 ***
 
@@ -690,7 +775,7 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 ```
 
 > `last_updated` 来自最新指标；`timestamp` 是服务器配置记录的创建/导入时间字段，普通编辑不会刷新它。~~两者都表示最近上报时间。~~（2026-07-26 修订）
-> `/api/server` 详情接口不返回新增的 `ping` / `loss` 窗口数组；详情页仍可使用 `ping_ct` / `ping_cu` / `ping_cm` / `ping_bd` 与 `loss_ct` / `loss_cu` / `loss_cm` / `loss_bd` 当前单点值。`latestReportUpdates` 与 `/api/servers` 同名字段形状一致，仅包含当前服务器最近一次批量上报的采样回放包；用于详情页打开时连续回放。REST 样本统一为 `{ ts, data }`，`data` 按探针采样包透传。缓存约 4 分钟，Worker/DO 重启后允许为空数组。
+> `/api/server` 详情接口不返回新增的 `ping` / `loss` 窗口数组；详情页仍可使用 `ping_ct` / `ping_cu` / `ping_cm` / `ping_bd` 与 `loss_ct` / `loss_cu` / `loss_cm` / `loss_bd` 当前单点值。`latestReportUpdates` 与 `/api/servers` 同名字段形状一致，仅包含当前服务器最近一次批量上报的采样回放包；用于详情页打开时连续回放。REST 样本统一为 `{ ts, data }`，`data` 按探针采样包透传。回放状态保留约 5 分钟，Worker/DO 重启后允许为空数组。
 
 **失败返回**：
 
@@ -793,6 +878,13 @@ Content-Type: application/json
   - `subscribe`（可选，默认 `all`）：
     - `all` → 订阅所有服务器的最新指标（**批量合并推送，每 5 秒一次**）
     - `<serverId>` → 只订阅指定服务器；~~收到上报后立即实时推送。~~ **2026-07-26 修订**：同样经过最长约 5 秒的 Worker 合并窗口
+  - `token` / `auth_token` / `ws_token`（私有站点可选）：JWT 登录令牌，用于浏览器 WebSocket 无法设置 `Authorization` Header 的场景
+
+**鉴权**：
+
+- 公开站点：无需 JWT。
+- 私有站点：必须通过 WebSocket JWT 认证，认证来源支持 `Authorization: Bearer <jwt>`、`Cookie: cfsm_auth=<jwt>`、查询参数 `token` / `auth_token` / `ws_token`。浏览器前端同域走 Cookie，跨域走查询参数。
+- `ids` 只控制订阅过滤范围，不是服务端鉴权。
 
 **Response** `101 Switching Protocols`（WebSocket 握手）
 
@@ -812,9 +904,7 @@ Sec-WebSocket-Version: 13
 | `subscribe=all` | 批量合并，每 5 秒一次 | `batchUpdate` | 减少消息数量，降低前端渲染压力 |
 | `subscribe=<serverId>` | 最长约 5 秒批量窗口 | `batchUpdate` | 单台服务器详情页仅过滤目标 ID，消息仍经统一合并队列 |
 
-> `subscribe=all` 默认不推送任何服务器更新。客户端应先调用 `/api/servers` 获取当前可见服务器列表，再通过 WebSocket 通道发送 `subscribe` 消息，使用 `servers[].id` 作为过滤列表。该过滤是客户端订阅范围控制，不是服务端鉴权。
->
-> **安全提示**：`/api/ws` 本身不校验 JWT、站点公开状态或 `is_hidden`。知道服务器 ID 的客户端可以使用单 ID scope 订阅；如需服务端权限隔离，应先修改实现，不能把 `ids` 过滤当作鉴权。
+> `subscribe=all` 默认不推送任何服务器更新。客户端应先调用 `/api/servers` 获取当前可见服务器列表，再通过 WebSocket 通道发送 `subscribe` 消息，使用 `servers[].id` 作为过滤列表。
 
 **服务端 → 客户端消息**：
 
@@ -881,6 +971,7 @@ Sec-WebSocket-Version: 13
 
 - `503 { "error": "WebSocket not enabled", "code": 503 }` —— 未绑定 `METRICS_BROADCASTER` Durable Object
 - `426 Expected WebSocket upgrade request` —— 缺少 `Upgrade: websocket` 头
+- `401 { "error": "Unauthorized", "code": 401 }` —— 私有站点缺少有效 WebSocket JWT
 - `400 Invalid subscription scope` —— URL 中的 `subscribe` 不合法
 - `403 Forbidden` ——设置了 WebSocket `Origin`，且不在 `CORS_ALLOWED_ORIGINS` 中
 - `500 { "error": "WebSocket error", "code": 500 }` —— Worker 转发至 DO 失败
@@ -890,7 +981,14 @@ Sec-WebSocket-Version: 13
 ```js
 const { servers } = await (await fetch('/api/servers')).json();
 const ids = servers.map(s => s.id);
-const ws = new WebSocket('wss://status.example.com/api/ws?subscribe=all');
+const url = new URL('wss://status.example.com/api/ws');
+url.searchParams.set('subscribe', 'all');
+const sameHost = url.host === location.host;
+if (!sameHost) {
+  const token = localStorage.getItem('jwt_token');
+  if (token) url.searchParams.set('token', token);
+}
+const ws = new WebSocket(url.toString());
 ws.onopen = () => {
   ws.send(JSON.stringify({ type: 'subscribe', scope: 'all', ids }));
 };
@@ -1012,7 +1110,7 @@ https://github.com/<owner>/<theme-repo>/tree/<commit-or-branch>[/theme-subdir]
   ```
 - Body（JSON）：
   ```json
-  { "action": "<one of: login|clear_theme_preview_auth|get_settings|start_theme_preview|list|d1_usage|send_test_notification|save_settings|add|delete|save_order|edit|batch_delete|export_servers|import_servers>", ...payload }
+  { "action": "<one of: login|clear_theme_preview_auth|get_settings|start_theme_preview|list|d1_usage|send_test_notification|save_settings|save_theme_options|add|delete|save_order|edit|batch_delete|export_servers|import_servers>", ...payload }
   ```
 
 **Turnstile**：
@@ -1207,6 +1305,8 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled` 或
     "csp_static": "https://static.example.com",
     "csp_api": "https://api.example.com",
     "display_mode": "bar",
+    "preferred_theme": "auto",
+    "default_language": "auto",
     "theme_url": "https://github.com/Tokinx/cf-server-monitor-theme-emerald/tree/8cea2bbdbadb50684f2e97e13f7b2149ef99911b",
     "appearance_options": {
       "theme_options": {
@@ -1218,11 +1318,13 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled` 或
     "show_price": "true",
     "show_expire": "true",
     "show_tf": "true",
-    "show_time": "true",
+    "frontend_ws_timeout_minutes": "20",
     "long_history_points": "120",
     "tg_notify": "0",
     "tg_bot_token": "",
     "tg_chat_id": "",
+    "notification_timezone": "UTC",
+    "expire_notification_time": "12",
     "turnstile_enabled": "false",
     "turnstile_login_enabled": "false",
     "turnstile_site_key": "",
@@ -1236,6 +1338,10 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled` 或
     "custom_cu": "gd-cu-dualstack.ip.zstaticcdn.com",
     "custom_cm": "gd-cm-dualstack.ip.zstaticcdn.com",
     "custom_bd": "ip.zstaticcdn.com",
+    "custom_ct_name": "电信",
+    "custom_cu_name": "联通",
+    "custom_cm_name": "移动",
+    "custom_bd_name": "BGP",
     "expire_reminder": "0"
   }
 }
@@ -1243,8 +1349,8 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled` 或
 
 **字段分类**：
 
-- `APPEARANCE_FIELDS`（写入 `appearance_options` JSON）：`site_title`、`custom_bg`、`custom_head`、`custom_script`、`csp_static`、`csp_api`、`display_mode`、`theme_options`
-- `SITE_FIELDS`（写入 `site_options` JSON）：`is_public`、`show_price`、`show_expire`、`show_tf`、`show_time`、`long_history_points`、通知、Turnstile、账号、Cloudflare、Ping 节点、`expire_reminder`、`theme_url`、历史优化字段等站点级配置
+- `APPEARANCE_FIELDS`（写入 `appearance_options` JSON）：`site_title`、`custom_bg`、`custom_bg_mobile`、`favicon`、`custom_head`、`custom_script`、`csp_static`、`csp_api`、`display_mode`、`preferred_theme`、`default_language`、`theme_options`
+- `SITE_FIELDS`（写入 `site_options` JSON）：`is_public`、`show_price`、`show_expire`、`show_tf`、`wss_report_enabled`、`wss_report_hours`、`frontend_ws_timeout_minutes`、`long_history_points`、通知、Turnstile、账号、Cloudflare、Ping 节点及其显示名称（`custom_ct_name`、`custom_cu_name`、`custom_cm_name`、`custom_bd_name`）、`expire_reminder`、`notification_timezone`、`expire_notification_time`、`theme_url`、历史优化字段等站点级配置。`wss_report_hours` 是允许 Agent WSS 上报的 UTC 小时数组（`0-23`）；缺失时默认全天，空数组表示所有时段均关闭
 - 任何未列出的字段会被忽略
 
 **特殊处理**：
@@ -1254,9 +1360,13 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled` 或
 - Ping 节点字段：仅校验本次请求中出现的 `custom_ct/custom_cu/custom_cm/custom_bd` 字段，因此只保存 `theme_url` 不会触发 Ping 节点格式校验
 - Turnstile：本次请求把 `turnstile_enabled` 或 `turnstile_login_enabled` 设为 `true` 时，必须同时提供非空 `turnstile_site_key` 与 `turnstile_secret_key`
 - 通知：规范化后的 `tg_notify` 非 `0`，或 `expire_reminder` 为 `1`-`7` 时，必须提供非空 `tg_bot_token`
-- `appearance_options` / `theme_options`：必须是非数组对象；`display_mode` 规范为 `bar` / `ring` / `table`
+- `notification_timezone`：通知输出时间和到期提醒计划使用的 IANA 时区；缺失或非法值回退为 `UTC`
+- `expire_notification_time`：到期提醒每天在通知时区内执行的小时，取值 `0`-`23`；缺失或非法值回退为 `12`
+- `appearance_options` / `theme_options`：必须是非数组对象；`display_mode` 规范为 `bar` / `ring` / `table`；`preferred_theme` 规范为 `auto` / `dark` / `light`，默认 `auto`；`default_language` 规范为 `auto` / `zh` / `en`，默认 `auto`
+- `frontend_ws_timeout_minutes`：规范为 `0`-`1440` 的整数分钟；缺失或非法值回退为 `0`，即前端连接不超时
 - `csp_static` / `csp_api`：逗号分隔，只保留不带凭据、路径、查询或 fragment 的 HTTPS origin，非法项会被静默过滤
 - 外观设置不是字段级合并：请求中只要出现任一外观字段或 `appearance_options`，后端就会用本次提供的外观字段重写整个 `appearance_options` JSON；部分更新时应先读取并回传完整外观对象
+- 第三方主题如只需更新 `theme_options`，应使用 `POST /api/theme_options` 或 `action: save_theme_options`；这些接口不会影响其他 settings
 - `jwt_secret` 不在保存阶段校验长度；只有长度至少 32 的值会用于签名，空值或短值在下一次加载设置时会被新生成并持久化的随机密钥替换
 
 **Response 200**
@@ -1318,6 +1428,57 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled` 或
 
 ***
 
+### 3.6.3 `action: save_theme_options` - 保存第三方主题配置
+
+**Request**
+
+```json
+{
+  "action": "save_theme_options",
+  "theme_options": {
+    "layout": "compact",
+    "accent": "green"
+  }
+}
+```
+
+也兼容以下格式：
+
+```json
+{
+  "action": "save_theme_options",
+  "settings": {
+    "theme_options": {
+      "layout": "compact",
+      "accent": "green"
+    }
+  }
+}
+```
+
+**行为**：
+
+- 需要携带有效 `Authorization: Bearer <jwt>`。
+- `theme_options` 必须是非数组对象；传数组、字符串、`null` 会返回 `400 invalidThemeOptionsFormat`。
+- 只更新 `settings` 表中 `appearance_options.theme_options`，保留 `appearance_options` 内其他字段，不写入或重写 `site_options`。
+- 推荐第三方主题直接调用 `POST /api/theme_options`；该 action 用于兼容 `/admin/api` action 路由体系。
+- 读取端仍使用 `/api/config` 返回的 `theme_options`。
+
+**Response 200**
+
+```json
+{
+  "success": true,
+  "theme_options": {
+    "layout": "compact",
+    "accent": "green"
+  },
+  "message": "updateSuccess"
+}
+```
+
+***
+
 ### 3.7 `action: add` - 新增服务器
 
 **Request**
@@ -1367,6 +1528,9 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled` 或
   "reset_day": 1,                     // 必传整数：0 ~ 31
   "collect_interval": 1,              // 必传：0 | 1 | 2 | 5 | 10
   "report_interval": 60,              // 必传：30 | 60 | 120 | 180
+  "wss_report_interval": 2,           // 1 | 2 | 3 | 4 | 5
+  "connection_mode": "auto",          // auto | http
+  "ping_mode": "tcp",                 // tcp | icmp
   "auto_update": "0",                // boolean-like，规范为 "0" | "1"
   "custom_ct": "gd-ct-dualstack.ip.zstaticcdn.com",
   "custom_cu": "gd-cu-dualstack.ip.zstaticcdn.com",
@@ -1654,6 +1818,7 @@ UUID 缺失或格式非法时返回 `400 { "error": "invalidServerId", "code": 4
 | `reset_day`                                   | number             | 流量重置日 `0..31`；`0` 表示不重置 |
 | `collect_interval`                            | number             | 采集间隔枚举：`0` / `1` / `2` / `5` / `10` 秒 |
 | `report_interval`                             | number             | 上报间隔枚举：`30` / `60` / `120` / `180` 秒 |
+| `ping_mode`                                   | string             | Ping 探测模式：`tcp` / `icmp`，默认 `tcp` |
 | `auto_update`                                 | string `"0"`/`"1"` | 探针自动更新；仅管理端 `list` / 导出返回，公共接口会删除 |
 | `custom_ct` / `custom_cu` / `custom_cm` / `custom_bd` | string | 服务器级测速节点 `host[:port]`；为空时使用站点设置 |
 | `rx_correction` / `tx_correction`             | number\|null       | 待下发给探针的一次性流量修正值 |
@@ -1673,9 +1838,9 @@ UUID 缺失或格式非法时返回 `400 { "error": "invalidServerId", "code": 4
 | `processes`                                   | number             | 进程数                       |
 | `tcp_conn`                                    | number             | TCP 连接数                   |
 | `udp_conn`                                    | number             | UDP 套接字数                  |
-| `ping_ct` / `ping_cu` / `ping_cm` / `ping_bd` | number\|null\|false | 各运营商延时 (ms)；`false` 表示禁用该节点 |
-| `loss_ct` / `loss_cu` / `loss_cm` / `loss_bd` | number\|null\|false | 各运营商丢包率 (%)；`false` 表示禁用该节点 |
-| `ping` / `loss`                               | array              | 仅 `/api/servers` 的 `servers[]` 列表项返回，`/api/server` 详情接口不返回；DO 缓存的一小时探测窗口，固定 30 个点，每 2 分钟一个槽位；实际采样不足 30 个槽位时，用时间最近的已有点补齐。若窗口最后一点落后当前最新指标超过 2 分钟，后端会用本次响应已查询到的最新指标追加一组点，不增加额外查询。点格式为 `{ ts, ct, cu, cm, bd }`，`ct/cu/cm/bd` 分别对应电信、联通、移动、BGP |
+| `ping_ct` / `ping_cu` / `ping_cm` / `ping_bd` / `ping_node_1` 至 `ping_node_4` | number\|null\|false | 各运营商及自定义节点延时 (ms)；`false` 表示未配置/未上报/未取样（不显示），`null` 表示该轮超时/未取到有效 RTT（显示 Timeout） |
+| `loss_ct` / `loss_cu` / `loss_cm` / `loss_bd` / `loss_node_1` 至 `loss_node_4` | number\|null\|false | 各运营商及自定义节点丢包率 (%)；`false` 表示未配置/未上报/未取样（不显示），`null` 表示没有丢包样本，`0`–`100` 是有效值，`100` 配合对应 `ping_*` 的 `null` 表示全超时 |
+| `ping` / `loss`                               | array              | 仅 `/api/servers` 的 `servers[]` 列表项返回，`/api/server` 详情接口不返回；后台开启三网详情时，从 D1 最近 2 小时历史按时间范围抽样最多 20 个真实样本点，当前 Worker isolate 内缓存约 5 分钟；关闭三网详情时为空数组且不触发这部分 D1 查询。点格式为 `{ ts, ct, cu, cm, bd }`，`ct/cu/cm/bd` 分别对应电信、联通、移动、BGP。`ts` 为真实上报时间，不强制等差对齐，也不会用最近点补齐缺口 |
 | `ram_total` / `ram_used`                      | number             | MB                        |
 | `swap_total` / `swap_used`                    | number             | MB                        |
 | `disk_total` / `disk_used`                    | number             | MB                        |
@@ -1704,7 +1869,7 @@ UUID 缺失或格式非法时返回 `400 { "error": "invalidServerId", "code": 4
 | 字段          | 类型             | 说明 |
 | ----------- | -------------- | ---- |
 | `timestamp` | number (ms)    | 采样时间 |
-| 其余字段        | number\|string\|null | 当前 `/api/history/all` 固定返回：`cpu, gpu_info, ram_total, ram_used, disk_total, disk_used, disk_read_bps, disk_write_bps, disk_read_iops, disk_write_iops, disk_await_ms, disk_util, processes, net_in_speed, net_out_speed, tcp_conn, udp_conn, ping_ct, ping_cu, ping_cm, ping_bd, loss_ct, loss_cu, loss_cm, loss_bd, swap_total, swap_used, load_avg, region, kernel_version`；其中 `gpu_info` 通常是 JSON 数组字符串，`disk` 仅在 `disk_*` 历史列存在有效数据时由服务端还原 |
+| 其余字段        | number\|string\|null | 当前 `/api/history/all` 固定返回：`cpu, gpu_info, ram_total, ram_used, disk_total, disk_used, disk_read_bps, disk_write_bps, disk_read_iops, disk_write_iops, disk_await_ms, disk_util, processes, net_in_speed, net_out_speed, tcp_conn, udp_conn, ping_ct, ping_cu, ping_cm, ping_bd, ping_node_1, ping_node_2, ping_node_3, ping_node_4, loss_ct, loss_cu, loss_cm, loss_bd, loss_node_1, loss_node_2, loss_node_3, loss_node_4, swap_total, swap_used, load_avg, region, kernel_version`；其中 `gpu_info` 通常是 JSON 数组字符串，`disk` 仅在 `disk_*` 历史列存在有效数据时由服务端还原 |
 
 历史行不包含单独的 `gpu` 字段，只包含 `gpu_info`。
 
@@ -1721,13 +1886,15 @@ UUID 缺失或格式非法时返回 `400 { "error": "invalidServerId", "code": 4
   csp_static: string,            // 额外静态资源来源
   csp_api: string,               // 额外 API/WebSocket 来源
   display_mode: 'bar' | 'ring' | 'table',
+  preferred_theme: 'auto' | 'dark' | 'light',
+  default_language: 'auto' | 'zh' | 'en',
   theme_options: Record<string, unknown>,
   theme_url: string,             // 第三方主题商店 URL；为空使用内置主题
   is_public: 'true' | 'false',
   show_price: 'true' | 'false',
   show_expire: 'true' | 'false',
   show_tf: 'true' | 'false',
-  show_time: 'true' | 'false',
+  frontend_ws_timeout_minutes: string, // '0'-'1440'；0 = 不超时
   long_history_points: '60' | '120' | '180' | '240',
   tg_notify: '0' | '2' ... '30',    // 0 = 关闭；旧值 false 兼容为 0，true 兼容为 5
   tg_bot_token: string,
@@ -1745,6 +1912,8 @@ UUID 缺失或格式非法时返回 `400 { "error": "invalidServerId", "code": 4
   custom_cm: string,             // 移动 host[:port]
   custom_bd: string,             // BGP host[:port]
   expire_reminder: '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7',
+  notification_timezone: string, // IANA timezone；默认 UTC
+  expire_notification_time: string, // '0'-'23'；默认 12
   history_id_optimized: 'true' | 'false',
   servers_optimized: 'true' | 'false'
 }
@@ -1776,17 +1945,17 @@ Worker 同时注册了 cron 触发器（`scheduled` handler），可在 `wrangle
 
 | Cron          | 行为              | 备注                                                             |
 | ------------- | --------------- | -------------------------------------------------------------- |
-| `*/1 * * * *` | 每分钟：检测离线节点      | `checkOfflineNodes`（通知）                                        |
+| `*/1 * * * *` | 每分钟：检测离线节点、资源告警 | `checkOfflineNodes`、`checkResourceAlerts`（通知） |
 | `0 * * * *`   | 每小时：根据 UTC 日期分支 | 见下表                                                            |
 | <br />        | 每周日 0 点：表轮换    | `weeklyCleanup`（删除旧表、重命名 metrics\_history → metrics\_history\_old、创建新表） |
-| <br />        | 每天 12 点：服务器到期检测 | `checkExpiringServers`                                         |
+| <br />        | 每小时按通知时区/到期提醒时间判断是否执行到期检测 | `checkExpiringServers` |
 
 每周日 00:00–00:04 UTC 的表轮换窗口内，分钟任务会跳过离线节点检测。
 
 DEBUG 模式（`env.DEBUG=1`）下额外提供：
 
 - `0 0 * * 0` → weeklyCleanup
-- `0 12 * * *` → checkExpiringServers
+- `0 12 * * *` → checkExpiringServers（DEBUG 手动路径；常规定时在每小时任务里按 `notification_timezone` + `expire_notification_time` 执行）
 
 ***
 
@@ -1915,12 +2084,22 @@ curl -X POST https://status.example.com/admin/api \
     "settings":{
       "site_title":"My Status",
       "is_public":"true",
+      "frontend_ws_timeout_minutes":"20",
       "long_history_points":"120",
       "turnstile_enabled":"true",
       "turnstile_site_key":"1x00000000000000000000AA",
       "turnstile_secret_key":"1x0000000000000000000000000000000AA"
     }
   }'
+```
+
+### 8.11.1 管理：保存第三方主题配置
+
+```bash
+curl -X POST https://status.example.com/api/theme_options \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"theme_options":{"layout":"compact","accent":"green"}}'
 ```
 
 ### 8.12 管理：D1 用量
@@ -1954,6 +2133,9 @@ wscat -c "wss://status.example.com/api/ws?subscribe=all"
 
 # 订阅指定服务器
 wscat -c "wss://status.example.com/api/ws?subscribe=9b2c4d3e-1a2b-4c5d-9e8f-7a6b5c4d3e2f"
+
+# 私有站点：使用查询参数 JWT
+wscat -c "wss://status.example.com/api/ws?subscribe=all&token=<jwt>"
 ```
 
 ### 8.16 公共：获取主题商店
@@ -1993,6 +2175,8 @@ curl -X POST https://status.example.com/admin/api \
 
 ## 9. 版本与变更说明
 
+- **2026-09-07**：统一 Ping/丢包取值约定并与 WSS 对齐：`false` / 字段缺失表示未配置、未上报或未取样（前端不显示）；`null` 表示该轮探测超时/未取到有效 RTT（前端显示 Timeout）。历史接口读取旧数据时按同行的 `loss=100` 归位，不再把“未上报”误显示成超时。
+- **2026-08-20**：新增 `frontend_ws_timeout_minutes` 站点设置与 `/api/config` 字段；默认 `0` 不超时，正整数表示前端实时订阅连接的分钟级寿命上限。
 - **2026-07-26**：重新同步 `main` 源码；当前 Workers 版本为 `2.8.0 Beta`，Agent 版本为 `1.3.2`。补充主题商店、主题代理、最新批次缓存、测试通知、服务器导入/导出及探针动态配置，修正鉴权、历史查询、WebSocket、数据库维护和数据结构说明。
 - ~~**v1.x**：当前文档对应早期 `src/index.js`、`src/handlers/*`、`src/database/schema.js` 主线实现。~~ **2026-07-26 修订**：文档现以 `2.8.0 Beta` 的 `main` 分支实现为准。
 - **Breaking change**：`/admin/api` 由 `GET?action=...` 改为 `POST {action:...}` 模式，Token 校验与 Turnstile 走 Header 通道。
