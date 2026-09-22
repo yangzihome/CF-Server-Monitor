@@ -106,19 +106,18 @@ function normalizePingNodeFields(source, fields = PING_NODE_FIELDS) {
   const values = {};
   for (const field of fields) {
     if (source?.[field] === undefined) continue;
-    const rawValue = source[field] === 0 || source[field] === '0' ? '' : source[field];
-    const result = validatePingNode(rawValue);
+    const result = validatePingNode(source[field]);
     if (!result.valid) {
       return { valid: false, field };
     }
-    values[field] = result.value;
+    // Keep the disabled-node sentinel as text so D1 does not coerce it to 0.0 in TEXT columns.
+    values[field] = source[field] === 0 || source[field] === '0' ? '0' : result.value;
   }
   return { valid: true, values };
 }
 
 function normalizeImportedPingNodeValue(value) {
-  if (value === null || value === 0 || value === '0') return null;
-  return value === undefined ? '' : value;
+  return value === null || value === undefined ? '' : value;
 }
 
 function normalizeNetworkInterfaceField(value) {
@@ -543,12 +542,20 @@ const PUBLIC_ADMIN_ACTION_HANDLERS = {
   clear_theme_preview_auth: handleClearThemePreviewAuthAction
 };
 
+export function sanitizeAdminSettings(fullSettings = {}) {
+  const { jwt_secret, github_client_secret, password, ...safeSettings } = fullSettings || {};
+  return {
+    ...safeSettings,
+    password_configured: Boolean(String(password || '').trim()),
+    github_client_secret_configured: Boolean(String(github_client_secret || '').trim())
+  };
+}
+
 async function handleGetSettingsAction({ env, sys, loadFullSettings }) {
   const fullSettings = loadFullSettings ? await loadFullSettings() : sys;
-  const { jwt_secret, ...safeSettings } = fullSettings || {};
   return createSuccessResponse({
     success: true,
-    settings: safeSettings,
+    settings: sanitizeAdminSettings(fullSettings),
     api_secret: env.API_SECRET
   });
 }
@@ -757,6 +764,9 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
 
     if (data.action === 'save_settings') {
       const settings = data.settings || {};
+      if (!String(sys?.password || '').trim() && !String(settings.password || '')) {
+        return createBadRequestResponse('passwordRequired');
+      }
       const normalizedThemeUrl = normalizeThemeUrl(settings.theme_url);
       if (normalizedThemeUrl === null) {
         return createBadRequestResponse('invalidThemeUrl');
@@ -772,6 +782,26 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
         }
         if (!settings.turnstile_secret_key || settings.turnstile_secret_key.trim().length === 0) {
           return createBadRequestResponse('turnstileSecretKeyRequired');
+        }
+      }
+
+      const githubOAuthEnabled = normalizeBooleanSetting(
+        settings.github_oauth_enabled !== undefined
+          ? settings.github_oauth_enabled
+          : sys?.github_oauth_enabled
+      ) === 'true';
+      const effectiveGithubClientId = String(
+        settings.github_client_id !== undefined ? settings.github_client_id : sys?.github_client_id || ''
+      ).trim();
+      const effectiveGithubClientSecret = String(
+        settings.github_client_secret !== undefined ? settings.github_client_secret : sys?.github_client_secret || ''
+      ).trim();
+      if (githubOAuthEnabled) {
+        if (!effectiveGithubClientId) {
+          return createBadRequestResponse('githubClientIdRequired');
+        }
+        if (!effectiveGithubClientSecret) {
+          return createBadRequestResponse('githubClientSecretRequired');
         }
       }
 
@@ -894,6 +924,14 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
             siteOptions[field] = normalizeNotificationWebhookBody(settings[field]);
           } else if (field === 'notification_template') {
             siteOptions[field] = normalizeNotificationTemplate(settings[field]);
+          } else if (field === 'github_oauth_enabled') {
+            siteOptions[field] = normalizeBooleanSetting(settings[field]);
+          } else if (field === 'github_client_id' || field === 'github_client_secret') {
+            siteOptions[field] = String(settings[field] || '').trim();
+          } else if (field === 'github_user_id') {
+            siteOptions[field] = /^[1-9]\d*$/.test(String(settings[field] || '').trim())
+              ? String(settings[field]).trim()
+              : '';
           } else if (field === 'theme_url') {
             siteOptions[field] = normalizedThemeUrl;
           } else {
@@ -1071,14 +1109,14 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
           normalizedAgentConfig.connection_mode,
           normalizedAgentConfig.ping_mode,
           normalizeBooleanFlag(auto_update),
-          pingNodes.values.custom_ct || null,
-          pingNodes.values.custom_cu || null,
-          pingNodes.values.custom_cm || null,
-          pingNodes.values.custom_bd || null,
-          pingNodes.values.node_1 || null,
-          pingNodes.values.node_2 || null,
-          pingNodes.values.node_3 || null,
-          pingNodes.values.node_4 || null,
+          pingNodes.values.custom_ct ?? null,
+          pingNodes.values.custom_cu ?? null,
+          pingNodes.values.custom_cm ?? null,
+          pingNodes.values.custom_bd ?? null,
+          pingNodes.values.node_1 ?? null,
+          pingNodes.values.node_2 ?? null,
+          pingNodes.values.node_3 ?? null,
+          pingNodes.values.node_4 ?? null,
           safeRx,
           safeTx,
           normalizeBooleanFlag(offline_notify_disabled),

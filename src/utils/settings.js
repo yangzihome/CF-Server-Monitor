@@ -6,12 +6,14 @@ import {
 
 export const APPEARANCE_FIELDS = ['site_title', 'custom_bg', 'custom_bg_mobile', 'favicon', 'custom_head', 'custom_script', 'csp_static', 'csp_api', 'display_mode', 'preferred_theme', 'default_language', 'theme_options'];
 
-export const SITE_FIELDS = ['is_public', 'show_price', 'show_expire', 'show_tf', 'show_three_net_details', 'wss_report_enabled', 'wss_report_hours', 'frontend_ws_timeout_minutes', 'long_history_points', 'tg_notify', 'tg_bot_token', 'tg_chat_id', 'notification_timezone', 'expire_notification_time', 'notification_webhook_enabled', 'notification_webhook_url', 'notification_webhook_method', 'notification_webhook_format', 'notification_webhook_headers', 'notification_webhook_body', 'notification_template', 'turnstile_enabled', 'turnstile_login_enabled', 'turnstile_site_key', 'turnstile_secret_key', 'jwt_secret', 'username', 'password', 'cloudflare_account_id', 'cloudflare_token', 'custom_ct', 'custom_cu', 'custom_cm', 'custom_bd', 'node_1', 'node_2', 'node_3', 'node_4', 'custom_ct_name', 'custom_cu_name', 'custom_cm_name', 'custom_bd_name', 'node_1_name', 'node_2_name', 'node_3_name', 'node_4_name', 'expire_reminder', 'resource_alert_rules', 'theme_url', 'history_id_optimized','servers_optimized'];
+const GITHUB_OAUTH_FIELDS = ['github_oauth_enabled', 'github_client_id', 'github_client_secret', 'github_user_id'];
+export const SITE_FIELDS = ['is_public', 'show_price', 'show_expire', 'show_tf', 'show_three_net_details', 'wss_report_enabled', 'wss_report_hours', 'frontend_ws_timeout_minutes', 'long_history_points', 'tg_notify', 'tg_bot_token', 'tg_chat_id', 'notification_timezone', 'expire_notification_time', 'notification_webhook_enabled', 'notification_webhook_url', 'notification_webhook_method', 'notification_webhook_format', 'notification_webhook_headers', 'notification_webhook_body', 'notification_template', 'turnstile_enabled', 'turnstile_login_enabled', 'turnstile_site_key', 'turnstile_secret_key', 'jwt_secret', 'username', 'password', ...GITHUB_OAUTH_FIELDS, 'cloudflare_account_id', 'cloudflare_token', 'custom_ct', 'custom_cu', 'custom_cm', 'custom_bd', 'node_1', 'node_2', 'node_3', 'node_4', 'custom_ct_name', 'custom_cu_name', 'custom_cm_name', 'custom_bd_name', 'node_1_name', 'node_2_name', 'node_3_name', 'node_4_name', 'expire_reminder', 'resource_alert_rules', 'theme_url', 'history_id_optimized','servers_optimized'];
+const LEGACY_SITE_FIELDS = SITE_FIELDS.filter(field => !GITHUB_OAUTH_FIELDS.includes(field));
 
 export const TG_NOTIFY_MINUTES_MIN = 2;
 export const TG_NOTIFY_MINUTES_MAX = 30;
 export const TG_NOTIFY_LEGACY_TRUE_MINUTES = 5;
-export const EXPIRE_REMINDER_DAYS_MAX = 7;
+export const EXPIRE_REMINDER_DAYS_MAX = 365;
 export const LONG_HISTORY_POINT_OPTIONS = [60, 120, 180, 240];
 export const DEFAULT_LONG_HISTORY_POINTS = 120;
 export const FRONTEND_WS_TIMEOUT_MINUTES_MAX = 1440;
@@ -96,6 +98,10 @@ const defaults = {
   turnstile_site_key: '',
   turnstile_secret_key: '',
   jwt_secret: '',
+  github_oauth_enabled: 'false',
+  github_client_id: '',
+  github_client_secret: '',
+  github_user_id: '',
   cloudflare_account_id: '',
   cloudflare_token: '',
   custom_ct: 'gd-ct-dualstack.ip.zstaticcdn.com',
@@ -635,8 +641,8 @@ export async function loadSiteSettings(db, options = {}) {
       }
     }
 
-    if (hasMissingFields(siteOptions, SITE_FIELDS)) {
-      copyFields(result, await loadLegacySettings(db, SITE_FIELDS), SITE_FIELDS);
+    if (hasMissingFields(siteOptions, LEGACY_SITE_FIELDS)) {
+      copyFields(result, await loadLegacySettings(db, LEGACY_SITE_FIELDS), LEGACY_SITE_FIELDS);
     }
     copyFields(result, siteOptions, SITE_FIELDS);
 
@@ -761,8 +767,8 @@ export async function saveSiteOptions(db, updates) {
   const existingSiteOptions = siteRow && siteRow.value
     ? tryParseJSON(siteRow.value) || {}
     : {};
-  const legacySiteOptions = hasMissingFields(existingSiteOptions, SITE_FIELDS)
-    ? await loadLegacySettings(db, SITE_FIELDS)
+  const legacySiteOptions = hasMissingFields(existingSiteOptions, LEGACY_SITE_FIELDS)
+    ? await loadLegacySettings(db, LEGACY_SITE_FIELDS)
     : {};
   
   const siteOptions = { ...legacySiteOptions, ...existingSiteOptions, ...updates };

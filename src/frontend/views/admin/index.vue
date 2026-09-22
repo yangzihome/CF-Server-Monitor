@@ -14,7 +14,9 @@
       :turnstile-login-enabled="turnstileLoginEnabled"
       :turnstile-enabled="turnstileEnabled"
       :turnstile-verified="turnstileVerified"
+      :github-o-auth-enabled="githubOAuthEnabled"
       @login="handleLogin"
+      @github-login="handleGithubLogin"
       @toggle-password="togglePassword"
       @api-index-change="handleApiIndexChange"
     />
@@ -81,22 +83,27 @@
             class="tab-btn"
             :class="{ active: activeTab === 'servers' }"
             @click="activeTab = 'servers'"
-          >▸ {{ trans.servers }}</button>
+          >{{ trans.servers }}</button>
           <button
             class="tab-btn"
             :class="{ active: activeTab === 'settings' }"
             @click="activeTab = 'settings'"
-          >▸ {{ trans.settings }}</button>
+          >{{ trans.settings }}</button>
           <button
             class="tab-btn"
             :class="{ active: activeTab === 'database' }"
             @click="activeTab = 'database'"
-          >▸ {{ trans.dbManagement }}</button>
+          >{{ trans.dbManagement }}</button>
           <button
             class="tab-btn"
             :class="{ active: activeTab === 'themeStore' }"
             @click="activeTab = 'themeStore'"
-          >▸ {{ trans.themeStore }}</button>
+          >{{ trans.themeStore }}</button>
+          <button
+            class="tab-btn"
+            :class="{ active: activeTab === 'donation' }"
+            @click="activeTab = 'donation'"
+          >{{ trans.donation }}</button>
         </div>
 
         <ServerTable
@@ -141,6 +148,7 @@
           :change-admin-password="changeAdminPassword"
           :test-notification-loading="testNotificationLoading"
           :d1-usage-loading="d1UsageLoading"
+          :github-binding-loading="githubBindingLoading"
           @toggle-password="togglePassword"
           @toggle-admin-password-change="toggleAdminPasswordChange"
           @save-settings="saveSettings"
@@ -149,6 +157,8 @@
           @upload-favicon="uploadFavicon"
           @send-test-notification="sendTestNotification"
           @query-d1-usage="queryD1Usage"
+          @bind-github-account="bindGithubAccount"
+          @alert-message="alertMessage = $event"
         />
 
         <DatabasePanel
@@ -168,6 +178,11 @@
           @theme-applied="settings.theme_url = $event"
           @theme-options-applied="handleThemeOptionsApplied"
           @alert-message="alertMessage = $event"
+        />
+
+        <DonationPanel
+          :trans="trans"
+          :active-tab="activeTab"
         />
       </div>
 
@@ -226,6 +241,7 @@
         :current-server-name="currentServerName"
         :delete-target-os="deleteTargetOs"
         :delete-version="deleteVersion"
+        :delete-install-mode="deleteInstallMode"
         :delete-gh-proxy="deleteGhProxy"
         :uninstall-command="getUninstallCommand()"
         :uninstall-copied="uninstallCopied"
@@ -234,15 +250,19 @@
         @copy-uninstall="copyUninstallCmd"
         @update:delete-target-os="deleteTargetOs = $event"
         @update:delete-version="deleteVersion = $event"
+        @update:delete-install-mode="deleteInstallMode = $event"
         @update:delete-gh-proxy="deleteGhProxy = $event"
       />
 
       <CopyCommandModal
         :trans="trans"
+        :settings="settings"
         :show="showCopyModal"
         :current-server-name="currentServerName"
         :target-os="targetOs"
+        :install-mode="installMode"
         :install-gh-proxy="installGhProxy"
+        :install-version="installVersion"
         :collect-interval="collectInterval"
         :report-interval="reportInterval"
         :wss-report-interval="wssReportInterval"
@@ -266,7 +286,9 @@
         @close="closeCopyModal"
         @copy-cmd="copyCustomCmd"
         @update:target-os="targetOs = $event"
+        @update:install-mode="installMode = $event"
         @update:install-gh-proxy="installGhProxy = $event"
+        @update:install-version="installVersion = $event"
         @open-edit-from-copy="openEditModalFromCopy"
       />
 
@@ -564,12 +586,14 @@ import ServerTable from './components/ServerTable.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import DatabasePanel from './components/DatabasePanel.vue'
 import ThemeStorePanel from './components/ThemeStorePanel.vue'
+import DonationPanel from './components/DonationPanel.vue'
 import EditServerModal from './components/EditServerModal.vue'
 import BatchEditServersModal from './components/BatchEditServersModal.vue'
 import DeleteServerModal from './components/DeleteServerModal.vue'
 import CopyCommandModal from './components/CopyCommandModal.vue'
-import { adminApi, login, logout as apiLogout, upgradeDatabase, clearHistory, getApiBases, fetchConfig } from '../../utils/api'
+import { adminApi, login, startGithubLogin, logout as apiLogout, upgradeDatabase, clearHistory, getApiBases, fetchConfig } from '../../utils/api'
 import { hasMultipleApiBases } from '../../utils/config.js'
+import { copyTextToClipboard } from '../../utils/clipboard.js'
 import { t, useTranslation } from '../../utils/i18n'
 import { PING_NODE_FIELDS, validatePingNode } from '../../utils/pingNode.js'
 import { normalizeDisplayMode, resolveDisplayMode } from '../../utils/displayMode.js'
@@ -644,12 +668,13 @@ const normalizeTgNotifySetting = (value) => {
 
 const isTgNotifyEnabled = (value) => normalizeTgNotifySetting(value) !== '0'
 
+const EXPIRE_REMINDER_DAYS_MAX = 365
 const normalizeExpireReminderSetting = (value) => {
   if (value === true || value === 'true') return '7'
   if (value === false || value === 'false' || value === undefined || value === null || value === '') return '0'
 
   const days = Number(value)
-  if (Number.isInteger(days) && days >= 0 && days <= 7) {
+  if (Number.isInteger(days) && days >= 0 && days <= EXPIRE_REMINDER_DAYS_MAX) {
     return String(days)
   }
 
@@ -933,12 +958,19 @@ const settings = ref({
   notification_webhook_body: '{\n  "title": "{{emoji}} {{event}}",\n  "content": "{{notification}}"\n}',
   notification_template: '{{emoji}}【CF Server Monitor】{{event}}\n\n{{message}}\n\n{{time}}',
   turnstile_enabled: false,
+  turnstile_login_enabled: false,
   turnstile_site_key: '',
   turnstile_secret_key: '',
+  github_oauth_enabled: false,
+  github_client_id: '',
+  github_client_secret: '',
+  github_client_secret_configured: false,
+  github_user_id: '',
   cloudflare_account_id: '',
   cloudflare_token: '',
   jwt_secret: '',
   username: '',
+  password_configured: false,
   password: '',
   confirm_password: '',
   custom_ct: '',
@@ -975,12 +1007,12 @@ const toggleAdminPasswordChange = () => {
 }
 
 const { visibility: passwordVisible, toggle: togglePassword } = usePasswordVisibility([
-  'login', 'tgBotToken', 'tgChatId', 'notificationWebhookUrl', 'turnstileSecret', 'cloudflareToken', 'jwtSecret', 'password', 'confirmPassword'
+  'login', 'tgBotToken', 'tgChatId', 'notificationWebhookUrl', 'turnstileSecret', 'githubClientSecret', 'cloudflareToken', 'jwtSecret', 'password', 'confirmPassword'
 ])
 
 const {
   turnstileEnabled, turnstileLoginEnabled, turnstileSiteKey,
-  turnstileToken, turnstileVerified,
+  turnstileToken, turnstileVerified, githubOAuthEnabled,
   hasSharedTurnstileVerified, loadTurnstileConfig: loadTurnstileConfigBase,
   renderTurnstile, resetTurnstile, clearTurnstile
 } = useTurnstile()
@@ -1062,6 +1094,7 @@ const copiedNoteServerId = ref(null)
 const copiedSpecKey = ref(null)
 const deleteTargetOs = ref('linux')
 const deleteVersion = ref('go')
+const deleteInstallMode = ref('current-user')
 const deleteGhProxy = ref('')
 const uninstallCopied = ref(false)
 const saving = ref(false)
@@ -1073,6 +1106,7 @@ const dbLoading = ref(false)
 const dbResult = ref(null)
 const d1UsageLoading = ref(false)
 const d1UsageResult = ref(null)
+const githubBindingLoading = ref(false)
 const validationError = ref(null)
 const alertMessage = ref(null)
 const showAutoUpdateWarning = ref(false)
@@ -1088,7 +1122,9 @@ const showCopyModal = ref(false)
 const copyServerId = ref('')
 const currentServerName = ref('')
 const targetOs = ref('linux')
+const installMode = ref('current-user')
 const installGhProxy = ref('')
+const installVersion = ref('')
 const collectInterval = ref(0)
 const reportInterval = ref(60)
 const wssReportInterval = ref(2)
@@ -1147,33 +1183,16 @@ const getPingNodeValidation = (source) => {
 
 const buildPingNodeError = (field) => `${getPingNodeLabel(field)}: ${trans.value.invalidPingNodeFormat}`
 
-const copyTextToClipboard = async (text) => {
-  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text)
-      return
-    } catch (e) {
-      // Fall back to the textarea path below.
-    }
-  }
-
-  const textarea = document.createElement('textarea')
-  textarea.value = text
-  textarea.setAttribute('readonly', '')
-  textarea.style.position = 'fixed'
-  textarea.style.opacity = '0'
-  document.body.appendChild(textarea)
-  textarea.select()
-  document.execCommand('copy')
-  document.body.removeChild(textarea)
-}
-
 const copyServerNote = async (server) => {
   const note = String(server?.note || '')
   if (!note.trim()) return
 
   try {
-    await copyTextToClipboard(note)
+    const copied = await copyTextToClipboard(note)
+    if (!copied) {
+      alertMessage.value = trans.value.httpsRequired
+      return
+    }
     copiedNoteServerId.value = server.id
     setTimeout(() => {
       if (copiedNoteServerId.value === server.id) {
@@ -1190,7 +1209,11 @@ const copyServerSpec = async ({ key, text } = {}) => {
   if (!key || !value || value === '-') return
 
   try {
-    await copyTextToClipboard(value)
+    const copied = await copyTextToClipboard(value)
+    if (!copied) {
+      alertMessage.value = trans.value.httpsRequired
+      return
+    }
     copiedSpecKey.value = key
     setTimeout(() => {
       if (copiedSpecKey.value === key) {
@@ -1238,6 +1261,34 @@ const handleLogin = async () => {
   loginLoading.value = false
 }
 
+const handleGithubLogin = async () => {
+  loginError.value = ''
+  if ((turnstileLoginEnabled.value || turnstileEnabled.value) && !turnstileToken.value) {
+    loginError.value = 'Please complete the verification'
+    return
+  }
+
+  loginLoading.value = true
+  try {
+    const result = await startGithubLogin(selectedApiIndex.value)
+    if (!result.error && result.data?.authorize_url) {
+      window.location.assign(result.data.authorize_url)
+      return
+    }
+    loginError.value = result.status === 403
+      ? 'Please complete the verification'
+      : trans.value.githubOAuthFailed
+    if (result.status === 403) {
+      clearTurnstile()
+      resetTurnstile('#admin-turnstile-container')
+    }
+  } catch (_) {
+    loginError.value = trans.value.githubOAuthFailed
+  } finally {
+    loginLoading.value = false
+  }
+}
+
 const logout = async () => {
   try {
     await adminApiForSite({ action: 'logout' })
@@ -1253,7 +1304,33 @@ const logout = async () => {
 
 const checkLoginStatus = () => {
   const token = localStorage.getItem('jwt_token')
-  return !!token
+  return !!token || appConfig?.authorization === true
+}
+
+const getGithubLoginError = () => {
+  const error = String(route.query.github_error || '')
+  if (!error) return ''
+  const messages = {
+    not_configured: trans.value.githubOAuthNotConfigured,
+    not_bound: trans.value.githubOAuthNotBound,
+    binding_auth_required: trans.value.githubBindingAuthRequired,
+    invalid_state: trans.value.githubOAuthInvalidState,
+    cancelled: trans.value.githubOAuthCancelled,
+    missing_code: trans.value.githubOAuthFailed,
+    token_exchange_failed: trans.value.githubOAuthFailed,
+    user_lookup_failed: trans.value.githubOAuthFailed,
+    not_allowed: trans.value.githubOAuthNotAllowed,
+    request_failed: trans.value.githubOAuthFailed
+  }
+  return messages[error] || trans.value.githubOAuthFailed
+}
+
+const clearGithubOAuthQuery = () => {
+  if (!route.query.github_bound && !route.query.github_error) return
+  const query = { ...route.query }
+  delete query.github_bound
+  delete query.github_error
+  router.replace({ path: '/admin', query })
 }
 
 const initAdmin = async () => {
@@ -1270,8 +1347,18 @@ const initAdmin = async () => {
       loadServers(),
       loadLatestAgentVersion()
     ])
+    if (route.query.github_bound === '1') {
+      activeTab.value = 'settings'
+      saveResult.value = { success: true, message: trans.value.githubBindingSuccess }
+    } else if (route.query.github_error) {
+      activeTab.value = 'settings'
+      saveResult.value = { success: false, error: getGithubLoginError() }
+    }
+    clearGithubOAuthQuery()
   } else {
     await loadTurnstileConfig()
+    loginError.value = getGithubLoginError()
+    clearGithubOAuthQuery()
   }
 }
 
@@ -1382,10 +1469,16 @@ const loadSettings = async () => {
         turnstile_login_enabled: settingsData.turnstile_login_enabled === 'true',
         turnstile_site_key: settingsData.turnstile_site_key || '',
         turnstile_secret_key: settingsData.turnstile_secret_key || '',
+        github_oauth_enabled: settingsData.github_oauth_enabled === 'true' || settingsData.github_oauth_enabled === true,
+        github_client_id: settingsData.github_client_id || '',
+        github_client_secret: '',
+        github_client_secret_configured: settingsData.github_client_secret_configured === true,
+        github_user_id: settingsData.github_user_id || '',
         cloudflare_account_id: settingsData.cloudflare_account_id || '',
         cloudflare_token: settingsData.cloudflare_token || '',
         jwt_secret: '',
         username: settingsData.username || '',
+        password_configured: settingsData.password_configured === true,
         password: '',
         confirm_password: '',
         custom_ct: settingsData.custom_ct || '',
@@ -1403,7 +1496,7 @@ const loadSettings = async () => {
         csp_api: settingsData.csp_api || ''
       }
       applyMikusThemeOptions(settingsData.theme_options)
-      changeAdminPassword.value = !String(settings.value.username || '').trim()
+      changeAdminPassword.value = !settings.value.password_configured || !String(settings.value.username || '').trim()
       apiSecret.value = data.api_secret || ''
     }
   } catch (e) {
@@ -1462,10 +1555,21 @@ const saveSettings = async () => {
     return
   }
 
+  if (normalizeExpireReminderSetting(settings.value.expire_reminder) !== String(settings.value.expire_reminder)) {
+    validationError.value = trans.value.invalidExpireReminder || `Expiration reminder must be an integer from 0 to ${EXPIRE_REMINDER_DAYS_MAX} days`
+    return
+  }
+
   const shouldChangePassword = changeAdminPassword.value && (
     settings.value.password.length > 0 ||
     settings.value.confirm_password.length > 0
   )
+
+  if (!settings.value.password_configured && !shouldChangePassword) {
+    changeAdminPassword.value = true
+    validationError.value = trans.value.passwordRequired
+    return
+  }
 
   if (shouldChangePassword) {
     if (settings.value.password !== settings.value.confirm_password) {
@@ -1481,6 +1585,17 @@ const saveSettings = async () => {
     }
     if (!settings.value.turnstile_secret_key || settings.value.turnstile_secret_key.trim().length === 0) {
       validationError.value = trans.value.turnstileSecretKeyRequired
+      return
+    }
+  }
+
+  if (settings.value.github_oauth_enabled) {
+    if (!String(settings.value.github_client_id || '').trim()) {
+      validationError.value = trans.value.githubClientIdRequired
+      return
+    }
+    if (!settings.value.github_client_secret_configured && !String(settings.value.github_client_secret || '').trim()) {
+      validationError.value = trans.value.githubClientSecretRequired
       return
     }
   }
@@ -1562,6 +1677,8 @@ const saveSettings = async () => {
       turnstile_login_enabled: settings.value.turnstile_login_enabled ? 'true' : 'false',
       turnstile_site_key: settings.value.turnstile_site_key,
       turnstile_secret_key: settings.value.turnstile_secret_key,
+      github_oauth_enabled: settings.value.github_oauth_enabled ? 'true' : 'false',
+      github_client_id: settings.value.github_client_id,
       cloudflare_account_id: settings.value.cloudflare_account_id,
       cloudflare_token: settings.value.cloudflare_token,
       username: settings.value.username,
@@ -1588,6 +1705,11 @@ const saveSettings = async () => {
     data.settings.jwt_secret = jwtSecret
   }
 
+  const githubClientSecret = String(settings.value.github_client_secret || '').trim()
+  if (githubClientSecret) {
+    data.settings.github_client_secret = githubClientSecret
+  }
+
   try {
     const result = await adminApiForSite(data)
     if (!result.error) {
@@ -1596,6 +1718,7 @@ const saveSettings = async () => {
       clearAdminPasswordInputs()
       changeAdminPassword.value = false
       settings.value.jwt_secret = ''
+      settings.value.github_client_secret = ''
       loadSettings()
     } else {
       saveResult.value = { success: false, error: getMessage(result.error) || 'fail' }
@@ -1604,6 +1727,28 @@ const saveSettings = async () => {
     saveResult.value = { success: false, error: e.message }
   } finally {
     saving.value = false
+  }
+}
+
+
+const bindGithubAccount = async () => {
+  if (githubBindingLoading.value) return
+  githubBindingLoading.value = true
+  saveResult.value = null
+  try {
+    const result = await startGithubLogin(selectedApiIndex.value, 'bind')
+    if (!result.error && result.data?.authorize_url) {
+      window.location.assign(result.data.authorize_url)
+      return
+    }
+    saveResult.value = {
+      success: false,
+      error: getMessage(result.error) || trans.value.githubOAuthFailed
+    }
+  } catch (e) {
+    saveResult.value = { success: false, error: e.message || trans.value.githubOAuthFailed }
+  } finally {
+    githubBindingLoading.value = false
   }
 }
 
@@ -1659,7 +1804,7 @@ const getInstallCommand = (serverId) => {
 
 const resolveServerPingNode = (server, field) => {
   const value = server?.[field]
-  const explicitEmpty = value === null || value === 0 || value === '0'
+  const explicitEmpty = value === 0 || value === '0'
   return {
     value: explicitEmpty ? '' : (value || settings.value[field] || ''),
     explicitEmpty
@@ -1671,26 +1816,24 @@ const getUninstallCommand = () => {
   const isGo = deleteVersion.value === 'go'
   const proxy = isGo ? deleteGhProxy.value.trim() : ''
   if (isGo) {
-    const proxyParam = proxy ? ` --install-ghproxy=${proxy}` : ''
     if (deleteTargetOs.value === 'windows') {
       const ghUrl = buildGhRawUrl(proxy, '/huilang-me/cfsm-agent/main/install.ps1')
-      return `$script = "$env:TEMP\\install-cf-probe.ps1"; Invoke-WebRequest -Uri "${ghUrl}" -OutFile $script -UseBasicParsing; PowerShell -ExecutionPolicy Bypass -File $script uninstall${proxyParam}`
+      const proxyParam = proxy ? ` ${quotePowerShellArg(`--install-ghproxy=${proxy}`)}` : ''
+      return `$script = "$env:TEMP\\install-cf-probe.ps1"; Invoke-WebRequest -Uri ${quotePowerShellArg(ghUrl)} -OutFile $script -UseBasicParsing; PowerShell -ExecutionPolicy Bypass -File $script uninstall${proxyParam}`
     }
     const sudoPrefix = deleteTargetOs.value === 'mac' ? 'sudo ' : ''
     const ghUrl = buildGhRawUrl(proxy, '/huilang-me/cfsm-agent/main/install.sh')
-    return `curl -fsSL ${ghUrl} | ${sudoPrefix}sh -s -- uninstall${proxyParam}`
+    const proxyParam = proxy ? ` ${quotePosixShellArg(`--install-ghproxy=${proxy}`)}` : ''
+    const uninstallCommand = `curl -fsSL ${quotePosixShellArg(ghUrl)} | ${sudoPrefix}sh -s -- uninstall${proxyParam}`
+    if (deleteTargetOs.value === 'linux' && deleteInstallMode.value === 'cfsm-user') {
+      return buildUninstallAsCfsmCommand(uninstallCommand)
+    }
+    return uninstallCommand
   }
   if (deleteTargetOs.value === 'windows') {
-    return `irm ${HOST}/cf-server-monitor.ps1 -OutFile cf-server-monitor.ps1; powershell -ExecutionPolicy Bypass -File .\\cf-server-monitor.ps1 uninstall`
+    return `$script = Join-Path (Get-Location) 'uninstall-cf-probe.ps1'; Invoke-WebRequest -Uri '${HOST}/uninstall.ps1' -OutFile $script -UseBasicParsing; PowerShell -ExecutionPolicy Bypass -File $script`
   }
-  const shell = deleteTargetOs.value === 'alpine' || deleteTargetOs.value === 'openwrt' ? 'sh' : 'bash'
-  const sudoPrefix = deleteTargetOs.value === 'mac' ? 'sudo ' : ''
-  const script = deleteTargetOs.value === 'alpine' ? 'install-alpine.sh'
-    : deleteTargetOs.value === 'openwrt' ? 'install-openwrt.sh'
-    : deleteTargetOs.value === 'mac' ? 'install-mac.sh'
-    : deleteTargetOs.value === 'synology' ? 'install-synology.sh'
-    : 'install.sh'
-  return `curl -sL ${HOST}/${script} | ${sudoPrefix}${shell} -s uninstall`
+  return `curl -fsSL '${HOST}/uninstall.sh' | sh -s`
 }
 
 const copyCmd = (serverId) => {
@@ -1698,7 +1841,9 @@ const copyCmd = (serverId) => {
   copyServerId.value = serverId
   currentServerName.value = server?.name || ''
   targetOs.value = 'linux'
+  installMode.value = 'current-user'
   installGhProxy.value = ''
+  installVersion.value = ''
   collectInterval.value = server?.collect_interval ?? 0
   reportInterval.value = server?.report_interval || 60
   wssReportInterval.value = server?.wss_report_interval || 2
@@ -1744,17 +1889,81 @@ const buildGhRawUrl = (proxy, path) => {
   return `${cleanProxy}/${base}${path}`
 }
 
+const quotePosixShellArg = (value) => `'${String(value).replaceAll("'", `'"'"'`)}'`
+
+const quotePowerShellArg = (value) => `'${String(value).replaceAll("'", "''")}'`
+
+const quotePosixDoubleShellArg = (value) => `"${String(value)
+  .replaceAll('\\', '\\\\')
+  .replaceAll('"', '\\"')
+  .replaceAll('$', '\\$')
+  .replaceAll('`', '\\`')}"`
+
+const buildUninstallAsCfsmCommand = (command) => {
+  const runuserCommand = `runuser -u cfsm -- env HOME="\${CFSM_HOME}" XDG_RUNTIME_DIR="/run/user/\${CFSM_UID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\${CFSM_UID}/bus" sh -c ${quotePosixDoubleShellArg(command)}`
+  return [
+    '(',
+    'set -e',
+    `if ! command -v runuser >/dev/null 2>&1; then echo ${quotePosixDoubleShellArg(trans.value.dedicatedUserUninstallUnsupported)} >&2; exit 1; fi`,
+    `id cfsm >/dev/null 2>&1 || { echo ${quotePosixDoubleShellArg(trans.value.nonRootUninstallUserMissing)} >&2; exit 1; }`,
+    'CFSM_UID=$(id -u cfsm)',
+    'CFSM_HOME=$(getent passwd cfsm | cut -d: -f6); [ -n "${CFSM_HOME}" ] || CFSM_HOME=/home/cfsm',
+    'if [ "$(id -u)" -eq 0 ]; then',
+    `  ${runuserCommand}`,
+    'elif command -v sudo >/dev/null 2>&1; then',
+    `  sudo ${runuserCommand}`,
+    'else',
+    `  echo ${quotePosixDoubleShellArg(trans.value.nonRootInstallSudoRequired)} >&2; exit 1`,
+    'fi',
+    ')'
+  ].join('\n')
+}
+
+const buildInstallAsCfsmCommand = (command, runStep) => {
+  const lines = [
+    '(',
+    'set -e',
+    `if [ ! -d /run/systemd/system ] || ! command -v systemctl >/dev/null 2>&1 || ! command -v loginctl >/dev/null 2>&1 || ! command -v useradd >/dev/null 2>&1 || ! command -v runuser >/dev/null 2>&1; then echo ${quotePosixDoubleShellArg(trans.value.dedicatedUserSystemdRequired)} >&2; exit 1; fi`,
+    'if [ "$(id -u)" -eq 0 ]; then',
+    '  as_root() { "$@"; }',
+    'elif command -v sudo >/dev/null 2>&1; then',
+    '  as_root() { sudo "$@"; }',
+    'else',
+    `  echo ${quotePosixDoubleShellArg(trans.value.nonRootInstallSudoRequired)} >&2; exit 1`,
+    'fi'
+  ]
+
+  lines.push(
+    'id cfsm >/dev/null 2>&1 || as_root useradd -m -s /bin/sh cfsm',
+    'as_root loginctl enable-linger cfsm'
+  )
+
+  lines.push(
+    'CFSM_UID=$(id -u cfsm)',
+    'as_root systemctl start user@${CFSM_UID}.service',
+    'if command -v getent >/dev/null 2>&1; then CFSM_HOME=$(getent passwd cfsm | cut -d: -f6); else CFSM_HOME=/home/cfsm; fi; [ -n "${CFSM_HOME}" ] || CFSM_HOME=/home/cfsm',
+    '',
+    `# ${runStep}`,
+    `as_root runuser -u cfsm -- env HOME="\${CFSM_HOME}" XDG_RUNTIME_DIR="/run/user/\${CFSM_UID}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\${CFSM_UID}/bus" sh -c ${quotePosixDoubleShellArg(command)}`,
+    ')'
+  )
+  return lines.join('\n')
+}
+
 const getCustomInstallCommand = () => {
   const HOST = selectedApiBase.value
   const autoUpdateFlag = autoUpdate.value ? 1 : 0
   const proxy = installGhProxy.value.trim()
+  const version = installVersion.value.trim()
   const effectiveConnectionMode = getEffectiveConnectionMode(connectionMode.value)
-  const effectivePingMode = getEffectivePingMode(pingMode.value)
+  const isDedicatedUserInstall = targetOs.value === 'linux' && installMode.value === 'cfsm-user'
+  const effectivePingMode = getEffectivePingMode(isDedicatedUserInstall ? 'tcp' : pingMode.value)
   if (targetOs.value === 'windows') {
     const params = [
       'install'
     ]
-    if (proxy) params.push(`--install-ghproxy='${proxy}'`)
+    if (proxy) params.push(quotePowerShellArg(`--install-ghproxy=${proxy}`))
+    if (version) params.push(quotePowerShellArg(`--install-version=${version}`))
     params.push(
       `-id='${copyServerId.value}'`,
       `-secret='${apiSecret.value}'`,
@@ -1775,10 +1984,11 @@ const getCustomInstallCommand = () => {
     if (hasCorrectionValue(rxCorrection.value)) params.push(`-rx_correction='${rxCorrection.value}'`)
     if (hasCorrectionValue(txCorrection.value)) params.push(`-tx_correction='${txCorrection.value}'`)
     const ghUrl = buildGhRawUrl(proxy, '/huilang-me/cfsm-agent/main/install.ps1')
-    return `$script = "$env:TEMP\\install-cf-probe.ps1"; Invoke-WebRequest -Uri "${ghUrl}" -OutFile $script -UseBasicParsing; PowerShell -ExecutionPolicy Bypass -File $script ${params.join(' ')}`
+    return `$script = "$env:TEMP\\install-cf-probe.ps1"; Invoke-WebRequest -Uri ${quotePowerShellArg(ghUrl)} -OutFile $script -UseBasicParsing; PowerShell -ExecutionPolicy Bypass -File $script ${params.join(' ')}`
   }
   const params = ['install']
-  if (proxy) params.push(`--install-ghproxy=${proxy}`)
+  if (proxy) params.push(quotePosixShellArg(`--install-ghproxy=${proxy}`))
+  if (version) params.push(quotePosixShellArg(`--install-version=${version}`))
   params.push(
     `-id=${copyServerId.value}`,
     `-secret='${apiSecret.value}'`,
@@ -1799,15 +2009,18 @@ const getCustomInstallCommand = () => {
   if (hasCorrectionValue(rxCorrection.value)) params.push(`-rx_correction=${rxCorrection.value}`)
   if (hasCorrectionValue(txCorrection.value)) params.push(`-tx_correction=${txCorrection.value}`)
   const ghUrl = buildGhRawUrl(proxy, '/huilang-me/cfsm-agent/main/install.sh')
-  return `curl -fsSL ${ghUrl} | sh -s -- ${params.join(' ')}`
+  const installCommand = `curl -fsSL ${quotePosixShellArg(ghUrl)} | sh -s -- ${params.join(' ')}`
+  if (!isDedicatedUserInstall) return installCommand
+
+  return buildInstallAsCfsmCommand(installCommand, trans.value.nonRootInstallRunStep)
 }
 
 const copyCustomCmd = async () => {
   const cmd = getCustomInstallCommand()
-  try {
-    await navigator.clipboard.writeText(cmd)
-  } catch (e) {
-    document.execCommand('copy')
+  const copied = await copyTextToClipboard(cmd)
+  if (!copied) {
+    alertMessage.value = trans.value.httpsRequired
+    return
   }
 
   copiedCmd.value = true
@@ -1830,10 +2043,10 @@ const openEditModalFromCopy = () => {
 
 const copyUninstallCmd = async () => {
   const cmd = getUninstallCommand()
-  try {
-    await navigator.clipboard.writeText(cmd)
-  } catch (e) {
-    document.execCommand('copy')
+  const copied = await copyTextToClipboard(cmd)
+  if (!copied) {
+    alertMessage.value = trans.value.httpsRequired
+    return
   }
 
   uninstallCopied.value = true
@@ -2047,6 +2260,7 @@ const openDeleteModal = (id) => {
   currentServerName.value = server?.name || ''
   deleteTargetOs.value = 'linux'
   deleteVersion.value = 'go'
+  deleteInstallMode.value = 'current-user'
   deleteGhProxy.value = ''
   uninstallCopied.value = false
   showDeleteModal.value = true

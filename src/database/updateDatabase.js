@@ -34,6 +34,9 @@ export async function updateDatabase(db) {
     const dropAggregated = await dropMetricsAggregatedTable(db);
     results.push({ name: '删除弃用的 metrics_aggregated 表', ...dropAggregated });
     
+    // 删除弃用的 notification_deliveries 表
+    await db.prepare(`DROP TABLE IF EXISTS notification_deliveries`).run();
+    
     debug('✅ 数据库更新完成');
     
     return {
@@ -193,7 +196,7 @@ async function cleanupServerExtraColumns(db) {
     const { results: columns } = await db.prepare(`PRAGMA table_info(servers)`).all();
     const existingCols = columns.map(c => c.name);
     
-    const extraCols = ['cpu', 'ram', 'disk', 'load_avg', 'uptime', 'last_updated', 'ram_total', 'net_rx', 'net_tx', 'net_in_speed', 'net_out_speed', 'os', 'cpu_info', 'cpu_cores' , 'arch' ,'boot_time', 'ram_used', 'swap_total', 'swap_used', 'disk_total', 'disk_used', 'processes', 'tcp_conn', 'udp_conn', 'country', 'ip_v4', 'ip_v6', 'ping_ct', 'ping_cu', 'ping_cm', 'ping_bd', 'monthly_rx', 'monthly_tx', 'last_rx', 'last_tx', 'reset_month', 'bandwidth'];
+    const extraCols = ['cpu', 'ram', 'disk', 'load_avg', 'uptime', 'last_updated', 'ram_total', 'net_rx', 'net_tx', 'net_in_speed', 'net_out_speed', 'os', 'cpu_info', 'cpu_cores' , 'arch' ,'boot_time', 'ram_used', 'swap_total', 'swap_used', 'disk_total', 'disk_used', 'processes', 'tcp_conn', 'udp_conn', 'country', 'ip_v4', 'ip_v6', 'ping_ct', 'ping_cu', 'ping_cm', 'ping_bd', 'monthly_rx', 'monthly_tx', 'last_rx', 'last_tx', 'reset_month', 'bandwidth','traffic_snapshots'];
     const colsToDrop = extraCols.filter(col => existingCols.includes(col));
     
     if (colsToDrop.length === 0) {
@@ -292,7 +295,10 @@ export async function cleanupStaleSettings(db) {
       'tg_chat_id',
       'last_aggregated_to',
       'last_cleanup',
-      'expire_reminder'
+      'expire_reminder',
+      'traffic_report_last_daily',
+      'traffic_report_last_weekly',
+      'traffic_report_last_monthly'
     ];
     const staleKeysWhere = stalePrefixes.map(() => `key LIKE ?`).concat(staleExact.map(() => `key = ?`)).join(' OR ');
     const staleBindings = [...stalePrefixes, ...staleExact];
