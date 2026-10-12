@@ -1063,8 +1063,8 @@ https://raw.githubusercontent.com/huilang-me/CFSM-Theme-Store/refs/heads/main/th
 | Path | 行为 |
 | ---- | ---- |
 | `/`、`/#/`、`/#/server/:id` 等前台路径 | `theme_url` 为空时返回内置主题；配置第三方主题时返回反代后的主题 `index.html` |
-| `/admin` | 始终返回内置默认主题的管理后台入口 |
-| `/admin/` | `302` 跳转到 `/admin#admin` |
+| `/admin` | 始终返回内置默认主题的管理后台入口；无 hash 进入时由前端归一化为 `/admin#/admin` |
+| `/admin/` | `302` 跳转到 `/admin#/admin` |
 | `/assets/*` | 配置或预览第三方主题时反代对应主题 `assets/`；未配置主题时返回 404 |
 | 其他静态路径 | 不走主题反代，由 Workers Static Assets 直接处理，缓存头以 `public/_headers` 为准 |
 
@@ -1178,7 +1178,7 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled` 或
 
 > `api_secret` 仅在 `get_settings` 中返回，方便前端展示/复制。
 >
-> ~~`settings` 包含 `jwt_secret`。~~ **2026-09-19 修订**：后端会从返回对象中剔除 `jwt_secret`、`password` 和 GitHub Client Secret；其他敏感值（如 Cloudflare Token、Turnstile Secret）仍可能存在，必须使用 HTTPS 并限制管理 Token。
+> ~~`settings` 包含 `jwt_secret`。~~ **2026-09-19 修订**：后端会从返回对象中剔除 `jwt_secret`、`password`；其他敏感值（如 Cloudflare Token、Turnstile Secret）仍可能存在，必须使用 HTTPS 并限制管理 Token。
 
 ***
 
@@ -1737,7 +1737,6 @@ UUID 缺失或格式非法时返回 `400 { "error": "invalidServerId", "code": 4
   "success": true,
   "message": "databaseUpgradeSuccess",
   "results": [
-    { "name": "metrics_history 索引检查", "success": true, "created": false, "message": "..." },
     { "name": "servers 表列更新", "success": true, "added": 5 },
     { "name": "servers 表多余字段清理", "success": true, "cleaned": 30, "message": "..." },
     { "name": "metrics_history 表列更新", "success": true, "added": 14 },
@@ -1747,7 +1746,7 @@ UUID 缺失或格式非法时返回 `400 { "error": "invalidServerId", "code": 4
 }
 ```
 
-~~升级步骤包括 `metrics_history load -> load_avg` 迁移和 `metrics_history` 写入优化。~~ **2026-07-26 修订**：当前顺序为历史表索引检查、补齐 `servers` 列、清理 `servers` 多余列、补齐 `metrics_history` 列、清理废弃设置、删除弃用的 `metrics_aggregated` 表。
+~~升级步骤包括 `metrics_history load -> load_avg` 迁移和 `metrics_history` 写入优化。~~ **修订**：当前顺序为补齐 `servers` 列、清理 `servers` 多余列、补齐 `metrics_history` 列、清理废弃设置、删除弃用的 `metrics_aggregated` 表。历史查询已统一为结构化主键 id 范围模式，不再创建 `(server_id, timestamp)` 二级索引。
 
 ~~任一步骤抛错时返回 HTTP 500。~~ **2026-07-26 修订**：升级函数会捕获未被子步骤处理的错误并返回 `{ "success": false, "message": "databaseUpgradeFailed", "error": "...", "results": [...] }`；路由仍使用成功响应包装，因此通常为 HTTP `200`。各子步骤本身也会捕获错误，所以顶层 `success: true` 时 `results[]` 仍可能含 `success: false`，调用方必须同时检查两层状态。
 
@@ -1916,7 +1915,6 @@ UUID 缺失或格式非法时返回 `400 { "error": "invalidServerId", "code": 4
   expire_reminder: string, // '0'-'365'; 0 disables expiration reminders
   notification_timezone: string, // IANA timezone；默认 UTC
   expire_notification_time: string, // '0'-'23'；默认 12
-  history_id_optimized: 'true' | 'false',
   servers_optimized: 'true' | 'false'
 }
 ```
